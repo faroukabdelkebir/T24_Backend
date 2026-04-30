@@ -3,7 +3,7 @@ package com.t24extractor.PreparedStatementSetter;
 import com.alibaba.fastjson2.JSONObject;
 import com.google.gson.Gson;
 //import org.bson.Document;
-import org.springframework.batch.item.database.ItemPreparedStatementSetter;
+import org.springframework.batch.infrastructure.item.database.ItemPreparedStatementSetter;
 import org.springframework.beans.factory.annotation.Value;
 
 import java.sql.PreparedStatement;

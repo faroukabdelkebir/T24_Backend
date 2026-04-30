@@ -5,8 +5,8 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.batch.core.JobExecution;
-import org.springframework.batch.core.JobExecutionListener;
+import org.springframework.batch.core.job.JobExecution;
+import org.springframework.batch.core.listener.JobExecutionListener;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,7 +29,7 @@ public class JobListener implements JobExecutionListener {
 
   @Override
   public void beforeJob(JobExecution jobExecution) {
-    long jobID = jobExecution.getId().longValue();
+    long jobID = jobExecution.getId();
 
 //    String sqlQuery =
 //        "UPDATE extractors SET job_execution_id = " + jobID + " " + "WHERE app_name = '" + appName

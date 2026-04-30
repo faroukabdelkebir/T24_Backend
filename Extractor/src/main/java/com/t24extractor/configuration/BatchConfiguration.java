@@ -16,23 +16,23 @@ import com.t24extractor.tasklet.*;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.batch.core.Job;
-import org.springframework.batch.core.JobExecutionListener;
-import org.springframework.batch.core.Step;
+import org.springframework.batch.core.job.Job;
+import org.springframework.batch.core.listener.JobExecutionListener;
+import org.springframework.batch.core.step.Step;
 import org.springframework.batch.core.configuration.annotation.JobScope;
 import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.job.builder.FlowBuilder;
 import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.job.flow.Flow;
 import org.springframework.batch.core.job.flow.support.SimpleFlow;
-import org.springframework.batch.core.launch.support.RunIdIncrementer;
+import org.springframework.batch.core.job.parameters.RunIdIncrementer;
 import org.springframework.batch.core.partition.PartitionHandler;
 import org.springframework.batch.core.partition.support.TaskExecutorPartitionHandler;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.builder.StepBuilder;
-import org.springframework.batch.item.database.JdbcBatchItemWriter;
-import org.springframework.batch.item.database.JdbcCursorItemReader;
-import org.springframework.batch.item.support.SynchronizedItemStreamReader;
+import org.springframework.batch.infrastructure.item.database.JdbcBatchItemWriter;
+import org.springframework.batch.infrastructure.item.database.JdbcCursorItemReader;
+import org.springframework.batch.infrastructure.item.support.SynchronizedItemStreamReader;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -42,6 +42,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import java.util.concurrent.Executors;
+import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.core.task.support.TaskExecutorAdapter;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import javax.sql.DataSource;
@@ -211,13 +214,9 @@ public class BatchConfiguration {
 
         LOG.info("[Reader Query] : \n" + query);
 
-        JdbcCursorItemReader<T24Table> reader = new JdbcCursorItemReader<>();
-
-        reader.setDataSource(dataSource);
+        JdbcCursorItemReader<T24Table> reader = new JdbcCursorItemReader<>(dataSource, query, xmlRowMapper());
         reader.setFetchSize(FETCH_SIZE);
         reader.setConnectionAutoCommit(false);
-        reader.setSql(query);
-        reader.setRowMapper(xmlRowMapper());
         if (query.contains("ABS")) {
             reader.setPreparedStatementSetter(ps ->
             {
@@ -225,9 +224,7 @@ public class BatchConfiguration {
                 ps.setInt(2, value);
             });
         }
-        SynchronizedItemStreamReader<T24Table> synchronizedReader = new SynchronizedItemStreamReader<>();
-        synchronizedReader.setDelegate(reader);
-        synchronizedReader.afterPropertiesSet();
+        SynchronizedItemStreamReader<T24Table> synchronizedReader = new SynchronizedItemStreamReader<>(reader);
 
         return synchronizedReader;
     }
@@ -256,15 +253,10 @@ public class BatchConfiguration {
         LOG.trace("[minValue - maxValue] : " + minValue + " -> " + maxValue);
         LOG.trace("[Reader Query] : \n" + readerQuery);
 
-        JdbcCursorItemReader<HashMap<String, Object>> reader = new JdbcCursorItemReader<>();
-        reader.setDataSource(dataSource);
+        JdbcCursorItemReader<HashMap<String, Object>> reader = new JdbcCursorItemReader<>(dataSource, readerQuery, blobRowMapper());
         reader.setFetchSize(FETCH_SIZE);
         reader.setConnectionAutoCommit(false);
-        reader.setSql(readerQuery);
-        reader.setRowMapper(blobRowMapper());
-        SynchronizedItemStreamReader<HashMap<String, Object>> synchronizedReader = new SynchronizedItemStreamReader<>();
-        synchronizedReader.setDelegate(reader);
-        synchronizedReader.afterPropertiesSet();
+        SynchronizedItemStreamReader<HashMap<String, Object>> synchronizedReader = new SynchronizedItemStreamReader<>(reader);
         return synchronizedReader;
     }
 
@@ -396,7 +388,8 @@ public class BatchConfiguration {
     @Bean
     public Step cusWorker(JdbcBatchItemWriter<com.alibaba.fastjson2.JSONObject> ItemWriter, JobRepository jobRepository, PlatformTransactionManager transactionManager) throws Exception {
         return new StepBuilder("cusWorker", jobRepository)
-                .<T24Table, com.alibaba.fastjson2.JSONObject>chunk(CHUNKS_NUMBER, transactionManager)
+                .<T24Table, com.alibaba.fastjson2.JSONObject>chunk(CHUNKS_NUMBER)
+                .transactionManager(transactionManager)
                 .reader(oracleXmlReader(null, 0))
                 .processor(cusXmlProcessor())
                 .writer(ItemWriter)
@@ -406,7 +399,8 @@ public class BatchConfiguration {
     @Bean
     public Step ftWorker(JdbcBatchItemWriter<com.alibaba.fastjson2.JSONObject> ItemWriter, JobRepository jobRepository, PlatformTransactionManager transactionManager) throws Exception {
         return new StepBuilder("ftWorker", jobRepository)
-                .<T24Table, com.alibaba.fastjson2.JSONObject>chunk(CHUNKS_NUMBER, transactionManager)
+                .<T24Table, com.alibaba.fastjson2.JSONObject>chunk(CHUNKS_NUMBER)
+                .transactionManager(transactionManager)
                 .reader(oracleXmlReader(null, 0))
                 .processor(ftXmlProcessor())
                 .writer(ItemWriter)
@@ -416,7 +410,8 @@ public class BatchConfiguration {
     @Bean
     public Step aaWorker(JdbcBatchItemWriter<com.alibaba.fastjson2.JSONObject> ItemWriter, JobRepository jobRepository, PlatformTransactionManager transactionManager) throws Exception {
         return new StepBuilder("aaWorker", jobRepository)
-                .<T24Table, com.alibaba.fastjson2.JSONObject>chunk(CHUNKS_NUMBER, transactionManager)
+                .<T24Table, com.alibaba.fastjson2.JSONObject>chunk(CHUNKS_NUMBER)
+                .transactionManager(transactionManager)
                 .reader(oracleXmlReader(null, 0))
                 .processor(aaBillXmlProcessor())
                 .writer(ItemWriter)
@@ -642,15 +637,21 @@ public class BatchConfiguration {
     }
 
 
+//    @Bean
+//    public ThreadPoolTaskExecutor taskExecutor() {
+//        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+//        executor.setCorePoolSize(workersNumber);
+//        executor.setMaxPoolSize(workersNumber + 1);
+//
+//        return executor;
+//    }
+
     @Bean
-    public ThreadPoolTaskExecutor taskExecutor() {
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(workersNumber);
-        executor.setMaxPoolSize(workersNumber + 1);
-
-        return executor;
+    public AsyncTaskExecutor taskExecutor() {
+        return new TaskExecutorAdapter(
+                Executors.newVirtualThreadPerTaskExecutor()
+        );
     }
-
 
 
     /***************************************************************************
