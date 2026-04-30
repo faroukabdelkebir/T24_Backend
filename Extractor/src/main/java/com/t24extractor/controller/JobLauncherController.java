@@ -1,27 +1,29 @@
 package com.t24extractor.controller;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.batch.core.Job;
-import org.springframework.batch.core.JobParameters;
-import org.springframework.batch.core.JobParametersBuilder;
-import org.springframework.batch.core.launch.JobLauncher;
+import org.springframework.batch.core.job.Job;
+import org.springframework.batch.core.job.JobExecution;
+import org.springframework.batch.core.job.parameters.JobParameters;
+import org.springframework.batch.core.job.parameters.JobParametersBuilder;
 import org.springframework.batch.core.launch.JobOperator;
+import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Comparator;
 import java.util.Set;
 import java.util.UUID;
 
-@Controller
+@RestController
 @RequestMapping("/api/v1")
 @Slf4j
 public class JobLauncherController {
 
-    JobLauncher jobLauncher;
     JobOperator jobOperator;
+    JobRepository jobRepository;
     Job loaderJob;
     Job mainJob;
     Job cusJob;
@@ -29,15 +31,15 @@ public class JobLauncherController {
     Job billDetailsJob;
 
     @Autowired
-    public JobLauncherController(JobLauncher jobLauncher,JobOperator jobOperator,
+    public JobLauncherController(JobOperator jobOperator, JobRepository jobRepository,
                                  @Qualifier("loadSchema") Job loaderJob,
                                  @Qualifier("t24") Job mainJob,
                                  @Qualifier("customer") Job cusJob,
                                  @Qualifier("ft.his") Job ftJob,
                                  @Qualifier("bill.details") Job billDetailsJob
                                  ) {
-        this.jobLauncher = jobLauncher;
         this.jobOperator = jobOperator;
+        this.jobRepository = jobRepository;
         this.loaderJob = loaderJob;
         this.mainJob = mainJob;
         this.cusJob = cusJob;
@@ -52,7 +54,7 @@ public class JobLauncherController {
                 .addString("run.id", UUID.randomUUID().toString())
                 .addLong("time", System.currentTimeMillis())
                 .toJobParameters();
-        jobLauncher.run(mainJob, jobParameters);
+        jobOperator.start(mainJob, jobParameters);
     }
 
     @RequestMapping("/customer/start")
@@ -62,7 +64,7 @@ public class JobLauncherController {
                 .addString("run.id", UUID.randomUUID().toString())
                 .addLong("time", System.currentTimeMillis())
                 .toJobParameters();
-        jobLauncher.run(cusJob, jobParameters);
+        jobOperator.start(cusJob, jobParameters);
     }
 
     @RequestMapping("/ft-his/start")
@@ -72,7 +74,7 @@ public class JobLauncherController {
                 .addString("run.id", UUID.randomUUID().toString())
                 .addLong("time", System.currentTimeMillis())
                 .toJobParameters();
-        jobLauncher.run(ftJob, jobParameters);
+        jobOperator.start(ftJob, jobParameters);
     }
 
     @RequestMapping("/billdetails/start")
@@ -82,15 +84,23 @@ public class JobLauncherController {
                 .addString("run.id", UUID.randomUUID().toString())
                 .addLong("time", System.currentTimeMillis())
                 .toJobParameters();
-        jobLauncher.run(billDetailsJob, jobParameters);
+        jobOperator.start(billDetailsJob, jobParameters);
     }
 
     @RequestMapping("/stop")
     @CrossOrigin
     public void handleStoppingAllJobs() throws Exception {
-        Set<Long> executions = jobOperator.getRunningExecutions("T24");
+        Set<JobExecution> executions = jobRepository.findRunningJobExecutions("T24");
         log.info("Executions: {}", executions);
-        jobOperator.stop(executions.iterator().next());
+        executions.stream()
+                .max(Comparator.comparing(JobExecution::getCreateTime))
+                .ifPresent(jobExecution -> {
+                    try {
+                        jobOperator.stop(jobExecution);
+                    } catch (Exception e) {
+                        throw new RuntimeException("Failed to stop running execution " + jobExecution.getId(), e);
+                    }
+                });
     }
 
 

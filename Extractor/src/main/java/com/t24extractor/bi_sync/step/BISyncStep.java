@@ -3,7 +3,7 @@ package com.t24extractor.bi_sync.step;
 import com.t24extractor.bi_sync.tasklet.BISyncTasklet;
 import lombok.extern.slf4j.Slf4j;
 import org.json.JSONObject;
-import org.springframework.batch.core.Step;
+import org.springframework.batch.core.step.Step;
 import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.builder.StepBuilder;

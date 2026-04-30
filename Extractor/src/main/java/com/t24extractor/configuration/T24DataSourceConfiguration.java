@@ -12,9 +12,8 @@ import com.t24extractor.repository.t24_repo.TafjVocRepository;
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.autoconfigure.data.jdbc.JdbcRepositoriesAutoConfiguration;
-import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
-import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
+import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
+import org.springframework.boot.jdbc.autoconfigure.DataSourceProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -31,10 +30,7 @@ import javax.sql.DataSource;
         basePackages = "com.t24extractor.repository.t24_repo",
         jdbcOperationsRef = "t24JdbcOperations"
 )
-@EnableAutoConfiguration(exclude = {
-        DataSourceAutoConfiguration.class,
-        JdbcRepositoriesAutoConfiguration.class
-})
+
 public class T24DataSourceConfiguration {
 
     @Bean

@@ -1,7 +1,7 @@
 package com.t24extractor.processor;
 
 import com.t24extractor.model.T24Table;
-import org.springframework.batch.item.ItemProcessor;
+import org.springframework.batch.infrastructure.item.ItemProcessor;
 import org.springframework.beans.factory.annotation.Value;
 
 import java.util.HashSet;
