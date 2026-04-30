@@ -1,0 +1,32 @@
+package com.t24extractor.model;
+
+import org.springframework.data.annotation.Id;
+import org.springframework.data.domain.Persistable;
+import org.springframework.data.relational.core.mapping.Column;
+import org.springframework.data.relational.core.mapping.Table;
+
+import static com.t24extractor.commons.Constants.STATS;
+
+
+@Table(value = STATS)
+public class Stats{
+
+        @Id
+        @Column("job_execution_id")
+        long jobExecutionId;
+
+        @Column("mssql_table")
+        String mssqlTable;
+
+        @Column("business_date")
+        int businessDate;
+
+        @Column("oracle_count")
+        int oracleTotalCount;
+
+        @Column("oracle_chunk_count")
+        int oracleChunkCount;
+
+        @Column("mongo_count")
+        int mongoCount;
+}
