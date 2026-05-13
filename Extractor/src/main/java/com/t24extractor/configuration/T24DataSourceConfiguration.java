@@ -15,20 +15,35 @@ import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
 import org.springframework.boot.jdbc.autoconfigure.DataSourceProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.data.jdbc.core.JdbcAggregateOperations;
+import org.springframework.data.jdbc.core.JdbcAggregateTemplate;
+import org.springframework.data.jdbc.core.convert.*;
+import org.springframework.data.jdbc.core.dialect.JdbcOracleDialect;
 import org.springframework.data.jdbc.repository.config.EnableJdbcRepositories;
+import org.springframework.data.relational.core.dialect.Dialect;
+import org.springframework.data.relational.core.dialect.OracleDialect;
+import org.springframework.data.relational.core.mapping.DefaultNamingStrategy;
+import org.springframework.data.relational.core.mapping.NamingStrategy;
+import org.springframework.data.relational.core.mapping.RelationalMappingContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcOperations;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import javax.sql.DataSource;
+import java.util.Optional;
 
 @Configuration
 @EnableJdbcRepositories(
         basePackageClasses = {StandardSelectionRecord.class, StandardSelectionRepository.class, FileControl.class, FileControlRepository.class, TafjVoc.class, TafjVocRepository.class, CobRepository.class, CobStatus.class},
         basePackages = "com.t24extractor.repository.t24_repo",
-        jdbcOperationsRef = "t24JdbcOperations"
+        jdbcAggregateOperationsRef = "t24JdbcAggregateOperations",
+        transactionManagerRef = "t24TransactionManager"
 )
 
 public class T24DataSourceConfiguration {
@@ -36,25 +51,32 @@ public class T24DataSourceConfiguration {
     @Bean
     @ConfigurationProperties(prefix = "spring.datasource.t24")
     public DataSourceProperties t24DataSourceProperties() {
+
         return new DataSourceProperties();
+    }
+
+    @Bean(name = "t24TransactionManager")
+    public PlatformTransactionManager t24TransactionManager(@Qualifier("T24") DataSource ds) {
+        return new DataSourceTransactionManager(ds);
     }
 
     @Bean
     @Qualifier("T24")
-    public DataSource getDataSource() {
-        HikariDataSource pds = new HikariDataSource();
+    public DataSource t24DataSource() {
+        HikariDataSource ds = new HikariDataSource();
 
-        pds.setJdbcUrl(t24DataSourceProperties().getUrl());
-        pds.setDriverClassName(t24DataSourceProperties().getDriverClassName());
-        pds.setUsername(t24DataSourceProperties().getUsername());
-        pds.setPassword(t24DataSourceProperties().getPassword());
-        pds.setMaximumPoolSize(20);
-        return pds;
+        ds.setJdbcUrl(t24DataSourceProperties().getUrl());
+        ds.setDriverClassName(t24DataSourceProperties().getDriverClassName());
+        ds.setUsername(t24DataSourceProperties().getUsername());
+        ds.setPassword(t24DataSourceProperties().getPassword());
+        ds.setMaximumPoolSize(20);
+        return ds;
     }
 
     @Bean
     @Qualifier("jdbcTemplateT24")
     public JdbcTemplate jdbcTemplateLogic(@Qualifier("T24") DataSource ds) {
+
         return new JdbcTemplate(ds);
     }
 
@@ -63,5 +85,59 @@ public class T24DataSourceConfiguration {
     @Qualifier("t24JdbcOperations")
     NamedParameterJdbcOperations t24JdbcOperations(@Qualifier("T24") DataSource dataSource) {
         return new NamedParameterJdbcTemplate(dataSource);
+    }
+
+    @Bean(name = "t24Dialect")
+    public Dialect t24Dialect() {
+        return JdbcOracleDialect.INSTANCE;
+    }
+
+    @Bean(name = "t24JdbcCustomConversions")
+    public JdbcCustomConversions t24JdbcCustomConversions() {
+        return new JdbcCustomConversions();
+    }
+
+    @Bean(name = "t24MappingContext")
+    public RelationalMappingContext t24MappingContext() {
+        return new org.springframework.data.jdbc.core.mapping.JdbcMappingContext(DefaultNamingStrategy.INSTANCE);
+    }
+
+    @Bean(name = "t24JdbcConverter")
+    public JdbcConverter t24JdbcConverter(
+            @Qualifier("t24MappingContext") RelationalMappingContext context,
+            @Qualifier("t24JdbcOperations") NamedParameterJdbcOperations ops,
+            @Lazy @Qualifier("t24DataAccessStrategy") RelationResolver relationResolver,
+            @Qualifier("t24JdbcCustomConversions") JdbcCustomConversions conversions
+    ) {
+        return new MappingJdbcConverter(context, relationResolver, conversions, new DefaultJdbcTypeFactory(ops.getJdbcOperations()));
+    }
+
+    @Bean(name = "t24DataAccessStrategy")
+    public DataAccessStrategy t24DataAccessStrategy(
+            @Qualifier("t24MappingContext") RelationalMappingContext context,
+            @Qualifier("t24JdbcConverter") JdbcConverter converter,
+            @Qualifier("t24JdbcOperations") NamedParameterJdbcOperations ops,
+            @Qualifier("t24Dialect") Dialect dialect
+    ) {
+        var sqlGeneratorSource = new SqlGeneratorSource(context, converter, dialect);
+        return new DefaultDataAccessStrategy(
+                sqlGeneratorSource,
+                context,
+                converter,
+                ops,
+                new org.springframework.data.jdbc.core.convert.SqlParametersFactory(context, converter),
+                new org.springframework.data.jdbc.core.convert.InsertStrategyFactory(ops, dialect),
+                org.springframework.data.jdbc.core.convert.QueryMappingConfiguration.EMPTY
+        );
+    }
+
+    @Bean(name = "t24JdbcAggregateOperations")
+    public JdbcAggregateOperations t24JdbcAggregateOperations(
+            ApplicationContext applicationContext,
+            @Qualifier("t24MappingContext") RelationalMappingContext context,
+            @Qualifier("t24JdbcConverter") JdbcConverter converter,
+            @Qualifier("t24DataAccessStrategy") DataAccessStrategy dataAccessStrategy
+    ) {
+        return new JdbcAggregateTemplate(applicationContext, context, converter, dataAccessStrategy);
     }
 }

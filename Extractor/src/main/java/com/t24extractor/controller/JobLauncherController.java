@@ -50,6 +50,7 @@ public class JobLauncherController {
     @RequestMapping("/start")
     @CrossOrigin
     public void handleMain() throws Exception {
+
         JobParameters jobParameters = new JobParametersBuilder()
                 .addString("run.id", UUID.randomUUID().toString())
                 .addLong("time", System.currentTimeMillis())
@@ -80,6 +81,11 @@ public class JobLauncherController {
     @RequestMapping("/billdetails/start")
     @CrossOrigin
     public void handleBillDetails() throws Exception {
+        String jobName = billDetailsJob.getName();
+        if (!jobRepository.findRunningJobExecutions(jobName).isEmpty()) {
+            log.warn("{} est déja en cours", jobName);
+        }
+
         JobParameters jobParameters = new JobParametersBuilder()
                 .addString("run.id", UUID.randomUUID().toString())
                 .addLong("time", System.currentTimeMillis())

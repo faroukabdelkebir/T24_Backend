@@ -22,6 +22,15 @@ import org.springframework.data.relational.core.mapping.NamingStrategy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcOperations;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.context.ApplicationContext;
+import org.springframework.data.jdbc.core.JdbcAggregateOperations;
+import org.springframework.data.jdbc.core.JdbcAggregateTemplate;
+import org.springframework.data.jdbc.core.convert.DataAccessStrategy;
+import org.springframework.data.jdbc.core.convert.DefaultDataAccessStrategy;
+import org.springframework.data.jdbc.core.convert.SqlGeneratorSource;
+import org.springframework.data.relational.core.mapping.RelationalMappingContext;
 
 import javax.sql.DataSource;
 import java.util.Objects;
@@ -30,7 +39,9 @@ import java.util.Optional;
 @Configuration
 @EnableJdbcRepositories(
         basePackages = "com.t24extractor.repository.bi_repos",
-        jdbcOperationsRef = "biJdbcOperations")
+        jdbcAggregateOperationsRef = "biJdbcAggregateOperations",
+        transactionManagerRef = "biTransactionManager"
+)
 
 public class BIDataSourceConfiguration {
 
@@ -42,8 +53,7 @@ public class BIDataSourceConfiguration {
 
     @Bean
     @Qualifier("bi")
-    @Primary
-    public DataSource dataSource() {
+    public DataSource biDataSource() {
         HikariDataSource ds = new HikariDataSource();
         ds.setJdbcUrl(Objects.requireNonNull(biDataSourceProperties().getUrl()));
         ds.setUsername(Objects.requireNonNull(biDataSourceProperties().getUsername()));
@@ -56,10 +66,8 @@ public class BIDataSourceConfiguration {
 
 
     @Bean("JdbcBI")
-    @Qualifier("JdbcBI")
-    @Primary
-    public JdbcTemplate jdbcSqlServer() {
-        return new JdbcTemplate(dataSource());
+    public JdbcTemplate jdbcSqlServer(@Qualifier("bi") DataSource ds) {
+        return new JdbcTemplate(ds);
     }
 
 //    @Bean
@@ -74,44 +82,101 @@ public class BIDataSourceConfiguration {
 //        return dataSourceInitializer;
 //    }
 
-    @Bean
-    @Qualifier("biJdbcOperations")
-    @Primary
+    @Bean(name = "biJdbcOperations")
     NamedParameterJdbcOperations biJdbcOperations(@Qualifier("bi") DataSource dataSource) {
         return new NamedParameterJdbcTemplate(dataSource);
     }
 
-    @Bean
-    @Primary
-    Dialect mssqlJdbcDialect() {
+    @Bean(name = "biTransactionManager")
+    public PlatformTransactionManager biTransactionManager(@Qualifier("bi") DataSource ds) {
+        return new DataSourceTransactionManager(ds);
+    }
+
+    @Bean(name = "biDialect")
+    public Dialect biDialect() {
         return JdbcSqlServerDialect.INSTANCE;
     }
 
-
-    @Bean
-    @Primary
-    JdbcCustomConversions customConversions() {
+    @Bean(name = "biJdbcCustomConversions")
+    public JdbcCustomConversions biJdbcCustomConversions() {
         return new JdbcCustomConversions();
     }
 
-    @Bean
-    @Primary
-    JdbcMappingContext jdbcMappingContext(Optional<NamingStrategy> namingStrategy, JdbcCustomConversions customConversions) {
-        JdbcMappingContext mappingContext = new JdbcMappingContext(namingStrategy.orElse(DefaultNamingStrategy.INSTANCE));
-        mappingContext.setSimpleTypeHolder(customConversions.getSimpleTypeHolder());
-        return mappingContext;
+    @Bean(name = "biMappingContext")
+    public RelationalMappingContext biMappingContext() {
+        return new org.springframework.data.jdbc.core.mapping.JdbcMappingContext(DefaultNamingStrategy.INSTANCE);
     }
 
-    @Bean
-    @Primary
-    JdbcConverter jdbcConverter(JdbcMappingContext mappingContext,
-                                @Qualifier("biJdbcOperations") NamedParameterJdbcOperations jdbcOperationsDataBase1,
-                                @Lazy RelationResolver relationResolver,
-                                JdbcCustomConversions conversions) {
-
-        DefaultJdbcTypeFactory jdbcTypeFactory = new DefaultJdbcTypeFactory(jdbcOperationsDataBase1.getJdbcOperations());
-        return new MappingJdbcConverter(mappingContext, relationResolver, conversions, jdbcTypeFactory);
+    @Bean(name = "biJdbcConverter")
+    public JdbcConverter biJdbcConverter(
+            @Qualifier("biMappingContext") RelationalMappingContext context,
+            @Qualifier("biJdbcOperations") NamedParameterJdbcOperations ops,
+            @Lazy @Qualifier("biDataAccessStrategy") RelationResolver relationResolver,
+            @Qualifier("biJdbcCustomConversions") JdbcCustomConversions conversions
+    ) {
+        return new MappingJdbcConverter(context, relationResolver, conversions, new DefaultJdbcTypeFactory(ops.getJdbcOperations()));
     }
+
+    @Bean(name = "biDataAccessStrategy")
+    public DataAccessStrategy biDataAccessStrategy(
+            @Qualifier("biMappingContext") RelationalMappingContext context,
+            @Qualifier("biJdbcConverter") JdbcConverter converter,
+            @Qualifier("biJdbcOperations") NamedParameterJdbcOperations ops,
+            @Qualifier("biDialect") Dialect dialect
+    ) {
+        var sqlGeneratorSource = new SqlGeneratorSource(context, converter, dialect);
+        return new DefaultDataAccessStrategy(
+                sqlGeneratorSource,
+                context,
+                converter,
+                ops,
+                new org.springframework.data.jdbc.core.convert.SqlParametersFactory(context, converter),
+                new org.springframework.data.jdbc.core.convert.InsertStrategyFactory(ops, dialect),
+                org.springframework.data.jdbc.core.convert.QueryMappingConfiguration.EMPTY
+        );
+    }
+
+    @Bean(name = "biJdbcAggregateOperations")
+    public JdbcAggregateOperations biJdbcAggregateOperations(
+            ApplicationContext applicationContext,
+            @Qualifier("biMappingContext") RelationalMappingContext context,
+            @Qualifier("biJdbcConverter") JdbcConverter converter,
+            @Qualifier("biDataAccessStrategy") DataAccessStrategy dataAccessStrategy
+    ) {
+        return new JdbcAggregateTemplate(applicationContext, context, converter, dataAccessStrategy);
+    }
+
+//    @Bean
+//    @Primary
+//    Dialect mssqlJdbcDialect() {
+//        return JdbcSqlServerDialect.INSTANCE;
+//    }
+//
+//
+//    @Bean
+//    @Primary
+//    JdbcCustomConversions customConversions() {
+//        return new JdbcCustomConversions();
+//    }
+//
+//    @Bean
+//    @Primary
+//    JdbcMappingContext jdbcMappingContext(Optional<NamingStrategy> namingStrategy, JdbcCustomConversions customConversions) {
+//        JdbcMappingContext mappingContext = new JdbcMappingContext(namingStrategy.orElse(DefaultNamingStrategy.INSTANCE));
+//        mappingContext.setSimpleTypeHolder(customConversions.getSimpleTypeHolder());
+//        return mappingContext;
+//    }
+//
+//    @Bean
+//    @Primary
+//    JdbcConverter jdbcConverter(JdbcMappingContext mappingContext,
+//                                @Qualifier("biJdbcOperations") NamedParameterJdbcOperations jdbcOperationsDataBase1,
+//                                @Lazy RelationResolver relationResolver,
+//                                JdbcCustomConversions conversions) {
+//
+//        DefaultJdbcTypeFactory jdbcTypeFactory = new DefaultJdbcTypeFactory(jdbcOperationsDataBase1.getJdbcOperations());
+//        return new MappingJdbcConverter(mappingContext, relationResolver, conversions, jdbcTypeFactory);
+//    }
 
 //    @Bean
 //    public IntegrationDataSourceScriptDatabaseInitializer customIntegrationDataSourceInitializer(@Qualifier("bi") DataSource dataSource) {

@@ -273,42 +273,42 @@ public class BatchConfiguration {
      ***************************************************************************/
 
     @Bean
-    public Step standardSelectionCustomerStep(JobRepository jobRepository, PlatformTransactionManager transactionManager) {
+    public Step standardSelectionCustomerStep(JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
         return new StepBuilder("Standard.Selection.CUSTOMER", jobRepository)
                 .tasklet(standardSelectionCustomer(null), transactionManager)
                 .build();
     }
 
     @Bean
-    public Step standardSelectionFTStep(JobRepository jobRepository, PlatformTransactionManager transactionManager) {
+    public Step standardSelectionFTStep(JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
         return new StepBuilder("Standard.Selection.FUNDS.TRANSFER", jobRepository)
                 .tasklet(standardSelectionFT(null), transactionManager)
                 .build();
     }
 
     @Bean
-    public Step standardSelectionAABillStep(JobRepository jobRepository, PlatformTransactionManager transactionManager) {
+    public Step standardSelectionAABillStep(JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
         return new StepBuilder("Standard.Selection.AA.BILL.DETAILS", jobRepository)
                 .tasklet(standardSelectionAABill(null), transactionManager)
                 .build();
     }
 
     @Bean
-    public Step TableNameCustomerStep(JobRepository jobRepository, PlatformTransactionManager transactionManager) {
+    public Step TableNameCustomerStep(JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
         return new StepBuilder("TableName.CUSTOMER", jobRepository)
                 .tasklet(tableNameCustomer(), transactionManager)
                 .build();
     }
 
     @Bean
-    public Step TableNameFTStep(JobRepository jobRepository, PlatformTransactionManager transactionManager) {
+    public Step TableNameFTStep(JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
         return new StepBuilder("TableName.FT$HIS", jobRepository)
                 .tasklet(tableNameFT(), transactionManager)
                 .build();
     }
 
     @Bean
-    public Step TableNameAABillStep(JobRepository jobRepository, PlatformTransactionManager transactionManager) {
+    public Step TableNameAABillStep(JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
         return new StepBuilder("TableName.AA.BILL.DETAILS", jobRepository)
                 .tasklet(tableNameAABill(), transactionManager)
                 .build();
@@ -316,7 +316,7 @@ public class BatchConfiguration {
 
     @Bean
     @JobScope
-    public Step cusQueryBuildingStep(JobRepository jobRepository, PlatformTransactionManager transactionManager) {
+    public Step cusQueryBuildingStep(JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
         return new StepBuilder("QueryBuildingStep", jobRepository)
                 .tasklet(queryCustomerTasklet(), transactionManager)
                 .build();
@@ -324,7 +324,7 @@ public class BatchConfiguration {
 
     @Bean
     @JobScope
-    public Step ftQueryBuildingStep(JobRepository jobRepository, PlatformTransactionManager transactionManager) {
+    public Step ftQueryBuildingStep(JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
         return new StepBuilder("QueryBuildingStep", jobRepository)
                 .tasklet(queryFtTasklet(), transactionManager)
                 .build();
@@ -332,7 +332,7 @@ public class BatchConfiguration {
 
     @Bean
     @JobScope
-    public Step aaQueryBuildingStep(JobRepository jobRepository, PlatformTransactionManager transactionManager) {
+    public Step aaQueryBuildingStep(JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
         return new StepBuilder("QueryBuildingStep", jobRepository)
                 .tasklet(queryAABillTasklet(), transactionManager)
                 .build();
@@ -386,7 +386,7 @@ public class BatchConfiguration {
      **********************/
 
     @Bean
-    public Step cusWorker(JdbcBatchItemWriter<com.alibaba.fastjson2.JSONObject> ItemWriter, JobRepository jobRepository, PlatformTransactionManager transactionManager) throws Exception {
+    public Step cusWorker(JdbcBatchItemWriter<com.alibaba.fastjson2.JSONObject> ItemWriter, JobRepository jobRepository,@Qualifier("biTransactionManager") PlatformTransactionManager transactionManager) throws Exception {
         return new StepBuilder("cusWorker", jobRepository)
                 .<T24Table, com.alibaba.fastjson2.JSONObject>chunk(CHUNKS_NUMBER)
                 .transactionManager(transactionManager)
@@ -397,7 +397,7 @@ public class BatchConfiguration {
     }
 
     @Bean
-    public Step ftWorker(JdbcBatchItemWriter<com.alibaba.fastjson2.JSONObject> ItemWriter, JobRepository jobRepository, PlatformTransactionManager transactionManager) throws Exception {
+    public Step ftWorker(JdbcBatchItemWriter<com.alibaba.fastjson2.JSONObject> ItemWriter, JobRepository jobRepository,@Qualifier("biTransactionManager") PlatformTransactionManager transactionManager) throws Exception {
         return new StepBuilder("ftWorker", jobRepository)
                 .<T24Table, com.alibaba.fastjson2.JSONObject>chunk(CHUNKS_NUMBER)
                 .transactionManager(transactionManager)
@@ -408,7 +408,7 @@ public class BatchConfiguration {
     }
 
     @Bean
-    public Step aaWorker(JdbcBatchItemWriter<com.alibaba.fastjson2.JSONObject> ItemWriter, JobRepository jobRepository, PlatformTransactionManager transactionManager) throws Exception {
+    public Step aaWorker(JdbcBatchItemWriter<com.alibaba.fastjson2.JSONObject> ItemWriter, JobRepository jobRepository,@Qualifier("biTransactionManager") PlatformTransactionManager transactionManager) throws Exception {
         return new StepBuilder("aaWorker", jobRepository)
                 .<T24Table, com.alibaba.fastjson2.JSONObject>chunk(CHUNKS_NUMBER)
                 .transactionManager(transactionManager)
@@ -526,7 +526,7 @@ public class BatchConfiguration {
     }
 
     @Bean
-    public Step cobStatus(JobRepository jobRepository, PlatformTransactionManager platformTransactionManager) {
+    public Step cobStatus(JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager platformTransactionManager) {
         return new StepBuilder(String.join("", Constants.STEP_COB_STATUS), jobRepository)
                 .tasklet(cobStatusTasklet, platformTransactionManager)
                 .build();
@@ -534,7 +534,7 @@ public class BatchConfiguration {
 
     @Bean
     @JobScope
-    public Step BISyncCus(BISyncTasklet biSyncCusTasklet, JobRepository jobRepository, PlatformTransactionManager platformTransactionManager) {
+    public Step BISyncCus(BISyncTasklet biSyncCusTasklet, JobRepository jobRepository,@Qualifier("biTransactionManager") PlatformTransactionManager platformTransactionManager) {
         return new StepBuilder(String.join("", Constants.BI_SYNC), jobRepository)
                 .tasklet(biSyncCusTasklet, platformTransactionManager)
                 .build();
@@ -552,7 +552,7 @@ public class BatchConfiguration {
 
     @Bean
     @JobScope
-    public Step BISyncFt(BISyncTasklet biSyncFtTasklet, JobRepository jobRepository, PlatformTransactionManager platformTransactionManager) {
+    public Step BISyncFt(BISyncTasklet biSyncFtTasklet, JobRepository jobRepository,@Qualifier("biTransactionManager")  PlatformTransactionManager platformTransactionManager) {
         return new StepBuilder(String.join("", Constants.BI_SYNC), jobRepository)
                 .tasklet(biSyncFtTasklet, platformTransactionManager)
                 .build();
@@ -570,7 +570,7 @@ public class BatchConfiguration {
 
     @Bean
     @JobScope
-    public Step BISyncAaBill(BISyncTasklet biSyncAaBillTasklet, JobRepository jobRepository, PlatformTransactionManager platformTransactionManager) {
+    public Step BISyncAaBill(BISyncTasklet biSyncAaBillTasklet, JobRepository jobRepository,@Qualifier("biTransactionManager")  PlatformTransactionManager platformTransactionManager) {
         return new StepBuilder(String.join("", Constants.BI_SYNC), jobRepository)
                 .tasklet(biSyncAaBillTasklet, platformTransactionManager)
                 .build();
@@ -596,7 +596,7 @@ public class BatchConfiguration {
 
     @Bean
     @JobScope
-    public Step jsonNormalizationCusStep(JobRepository jobRepository, PlatformTransactionManager platformTransactionManager) {
+    public Step jsonNormalizationCusStep(JobRepository jobRepository,@Qualifier("biTransactionManager")  PlatformTransactionManager platformTransactionManager) {
         return new StepBuilder(String.join("", "JSON_NORMALIZATION"), jobRepository)
                 .tasklet(normalizationCusTasklet(), platformTransactionManager)
                 .build();
@@ -613,7 +613,7 @@ public class BatchConfiguration {
 
     @Bean
     @JobScope
-    public Step jsonNormalizationFtStep(JobRepository jobRepository, PlatformTransactionManager platformTransactionManager) {
+    public Step jsonNormalizationFtStep(JobRepository jobRepository,@Qualifier("biTransactionManager")  PlatformTransactionManager platformTransactionManager) {
         return new StepBuilder(String.join("", "JSON_NORMALIZATION"), jobRepository)
                 .tasklet(normalizationFtTasklet(), platformTransactionManager)
                 .build();
@@ -630,7 +630,7 @@ public class BatchConfiguration {
 
     @Bean
     @JobScope
-    public Step jsonNormalizationAaBillStep(JobRepository jobRepository, PlatformTransactionManager platformTransactionManager) {
+    public Step jsonNormalizationAaBillStep(JobRepository jobRepository,@Qualifier("biTransactionManager")  PlatformTransactionManager platformTransactionManager) {
         return new StepBuilder(String.join("", "JSON_NORMALIZATION"), jobRepository)
                 .tasklet(normalizationAaBillTasklet(), platformTransactionManager)
                 .build();

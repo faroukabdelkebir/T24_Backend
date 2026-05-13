@@ -63,13 +63,9 @@ CREATE TABLE SCHEDULED_OPS
             primary key,
     table_name  varchar(100),
     column_name varchar(90),
-    ops         char, [
-    status]
-    varchar
-(
-    2
-)
-    );
+    ops         char,
+    [status]    varchar(2)
+);
 GO
 
 -- CREATE TABLE SchemaSource

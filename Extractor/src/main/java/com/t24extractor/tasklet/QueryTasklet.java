@@ -1,7 +1,7 @@
 package com.t24extractor.tasklet;
 
 import com.t24extractor.bi_sync.ops.SqlOps;
-import com.t24extractor.bi_sync.ops.SqlServerOps;
+import com.t24extractor.bi_sync.ops.OracleOps;
 import lombok.NonNull;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -25,7 +25,7 @@ public class QueryTasklet implements Tasklet {
     @Qualifier("jdbcTemplateT24")
     private JdbcTemplate jdbcTemplate;
 
-    private final SqlOps sqlOps = new SqlServerOps();
+    private final SqlOps sqlOps = new OracleOps();
 
     @Setter
     private String tableName;
@@ -63,7 +63,7 @@ public class QueryTasklet implements Tasklet {
         dataQuery = String.join(SPACE, dataQuery, getQueryCondition());
 
 
-        StringBuilder partitioningQuery = new StringBuilder("WHERE ABS(CHECKSUM(%% physloc %%)) %  ? = ?");
+        StringBuilder partitioningQuery = new StringBuilder("WHERE MOD(ORA_HASH(ROWID), ?) = ?");
 
         if (getQueryCondition().contains(WHERE_CLAUSE))
             partitioningQuery.replace(0, WHERE_CLAUSE.length(), AND_CLAUSE);
