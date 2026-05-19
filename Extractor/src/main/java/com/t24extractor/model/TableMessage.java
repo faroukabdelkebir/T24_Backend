@@ -14,25 +14,25 @@ public class TableMessage
 {
     private Long id;
     
-    private String TableName ;
+    private String tableName ;
     
-    private String T24SelectionName ;
+    private String t24SelectionName ;
     
-    private String Chargement ;
+    private String chargement ;
     
-    private String Colonne_Ref ;
+    private String colonneRef ;
     
-    private String Last_Date ;
+    private String lastDate ;
     
-    private String Indexes ;
+    private String indexes ;
     
-    private String Type ;
+    private String type ;
     
-    private String Destination ;
+    private String destination ;
     
-    private String Date_Format ;
+    private String dateFormat ;
     
-    private String Future_Date ;
+    private String futureDate ;
     
-    private String Run_ID ;
+    private String runID ;
 }

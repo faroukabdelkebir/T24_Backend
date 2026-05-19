@@ -1,6 +1,6 @@
 package com.t24extractor.configuration;
 
-import com.t24extractor.PreparedStatementSetter.ItemPrepStmtSetter;
+import com.t24extractor.preparedstatementsetter.ItemPrepStmtSetter;
 import com.t24extractor.bi_sync.tasklet.BISyncTasklet;
 import com.t24extractor.commons.Constants;
 import com.t24extractor.decider.ExecutionFlowDecider;
@@ -10,6 +10,12 @@ import com.t24extractor.partitioner.MssqlPartitioner;
 import com.t24extractor.processor.BlobFilterProcessor;
 import com.t24extractor.processor.XMLFilterProcessor;
 import com.t24extractor.processor.XMLProcessor;
+import com.t24extractor.repository.bi_repos.MetaDataRepository;
+import com.t24extractor.repository.bi_repos.ScheduledOpsRepository;
+import com.t24extractor.repository.bi_repos.SchemaSourceAuditRepository;
+import com.t24extractor.repository.bi_repos.SchemaSourceRepository;
+import com.t24extractor.repository.t24_repo.StandardSelectionRepository;
+import com.t24extractor.repository.t24_repo.TafjVocRepository;
 import com.t24extractor.rowmapper.BlobRowMapper;
 import com.t24extractor.rowmapper.XMLRowMapper;
 import com.t24extractor.tasklet.*;
@@ -41,7 +47,9 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+
+import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.Executors;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.core.task.support.TaskExecutorAdapter;
@@ -50,6 +58,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import javax.sql.DataSource;
 import java.util.HashMap;
 
+import static com.t24extractor.commons.Constants.*;
 
 
 @Configuration
@@ -59,25 +68,24 @@ public class BatchConfiguration {
 
     private static final Logger LOG = LoggerFactory.getLogger(BatchConfiguration.class);
 
-    private static final int CHUNKS_NUMBER = 700;
-    private static final int FETCH_SIZE = 1000;
 
     @Value("${workers.number}")
     private int workersNumber;
 
-    @Autowired
-    @Qualifier("T24")
-    private DataSource dataSource;
+    private final DataSource dataSource;
 
-    @Autowired
-    @Qualifier("bi")
-    private DataSource biDataSource;
+    private final DataSource biDataSource;
 
     private final CobStatusTasklet cobStatusTasklet;
 
     @Autowired
-    public BatchConfiguration(CobStatusTasklet cobStatusTasklet) {
+    public BatchConfiguration(
+            CobStatusTasklet cobStatusTasklet,
+            @Qualifier("t24") DataSource dataSource,
+            @Qualifier("bi") DataSource biDataSource) {
         this.cobStatusTasklet = cobStatusTasklet;
+        this.dataSource = dataSource;
+        this.biDataSource = biDataSource;
     }
 
     /***************************************************************************
@@ -87,8 +95,8 @@ public class BatchConfiguration {
      ***************************************************************************/
 
     @Bean
-    public JobExecutionListener jobListener() {
-        return new JobListener();
+    public JobExecutionListener jobListener(@Qualifier("jdbcBI") JdbcTemplate jdbcTemplate) {
+        return new JobListener(jdbcTemplate);
     }
 
 
@@ -100,24 +108,30 @@ public class BatchConfiguration {
 
     @Bean
     public StandardSelectionTasklet
-    standardSelectionCustomer(@Qualifier("jdbcTemplateT24") JdbcTemplate jdbcExecutor) {
-        StandardSelectionTasklet myTasklet = new StandardSelectionTasklet();
+    standardSelectionCustomer(@Qualifier("jdbcTemplateT24") JdbcTemplate jdbcExecutor,
+                              @Qualifier("jdbcBI") JdbcTemplate jdbcBatchExecutor,
+                              TafjVocRepository tafjVocRepository,
+                              StandardSelectionRepository standardSelectionRepository) {
+        StandardSelectionTasklet myTasklet = new StandardSelectionTasklet(jdbcBatchExecutor, tafjVocRepository, standardSelectionRepository);
 
         myTasklet.setJdbcExecutor(jdbcExecutor);
-        myTasklet.setT24TableName("CUSTOMER");
+        myTasklet.setT24TableName(CUSTOMER);
         myTasklet.setTableType("X");
-        myTasklet.setOracleTableName("FBNK_CUSTOMER");
+        myTasklet.setOracleTableName(FBNK_CUSTOMER);
 
         return myTasklet;
     }
 
     @Bean
     public StandardSelectionTasklet
-    standardSelectionFT(@Qualifier("jdbcTemplateT24") JdbcTemplate jdbcExecutor) {
-        StandardSelectionTasklet myTasklet = new StandardSelectionTasklet();
+    standardSelectionFT(@Qualifier("jdbcTemplateT24") JdbcTemplate jdbcExecutor,
+                        @Qualifier("jdbcBI") JdbcTemplate jdbcBatchExecutor,
+                        TafjVocRepository tafjVocRepository,
+                        StandardSelectionRepository standardSelectionRepository) {
+        StandardSelectionTasklet myTasklet = new StandardSelectionTasklet(jdbcBatchExecutor, tafjVocRepository, standardSelectionRepository);
 
         myTasklet.setJdbcExecutor(jdbcExecutor);
-        myTasklet.setT24TableName("FUNDS.TRANSFER$HIS");
+        myTasklet.setT24TableName(FUNDS_TRANSFER_HIS);
         myTasklet.setTableType("X");
         myTasklet.setOracleTableName("FBNK_FUNDS_TRANSFER001");
 
@@ -126,52 +140,55 @@ public class BatchConfiguration {
 
     @Bean
     public StandardSelectionTasklet
-    standardSelectionAABill(@Qualifier("jdbcTemplateT24") JdbcTemplate jdbcExecutor) {
-        StandardSelectionTasklet myTasklet = new StandardSelectionTasklet();
+    standardSelectionAABill(@Qualifier("jdbcTemplateT24") JdbcTemplate jdbcExecutor,
+                            @Qualifier("jdbcBI") JdbcTemplate jdbcBatchExecutor,
+                            TafjVocRepository tafjVocRepository,
+                            StandardSelectionRepository standardSelectionRepository) {
+        StandardSelectionTasklet myTasklet = new StandardSelectionTasklet(jdbcBatchExecutor, tafjVocRepository, standardSelectionRepository);
 
         myTasklet.setJdbcExecutor(jdbcExecutor);
-        myTasklet.setT24TableName("AA.BILL.DETAILS");
+        myTasklet.setT24TableName(AA_BILL_DETAILS);
         myTasklet.setTableType("X");
-        myTasklet.setOracleTableName("FBNK_AA_BILL_DETAILS");
+        myTasklet.setOracleTableName(FBNK_BILL_DETAILS);
 
         return myTasklet;
     }
 
     @Bean
-    public TableNameTasklet tableNameCustomer() {
-        TableNameTasklet tableNameTasklet = new TableNameTasklet();
-        tableNameTasklet.setT24TableName("CUSTOMER");
+    public TableNameTasklet tableNameCustomer(TafjVocRepository tafjVocRepository, FileControlServiceImpl fileControlService) {
+        TableNameTasklet tableNameTasklet = new TableNameTasklet(tafjVocRepository, fileControlService);
+        tableNameTasklet.setT24TableName(CUSTOMER);
         return tableNameTasklet;
     }
 
     @Bean
-    public TableNameTasklet tableNameFT() {
-        TableNameTasklet tableNameTasklet = new TableNameTasklet();
-        tableNameTasklet.setT24TableName("FUNDS.TRANSFER$HIS");
+    public TableNameTasklet tableNameFT(TafjVocRepository tafjVocRepository, FileControlServiceImpl fileControlService) {
+        TableNameTasklet tableNameTasklet = new TableNameTasklet(tafjVocRepository, fileControlService);
+        tableNameTasklet.setT24TableName(FUNDS_TRANSFER_HIS);
         return tableNameTasklet;
     }
 
     @Bean
-    public TableNameTasklet tableNameAABill() {
-        TableNameTasklet tableNameTasklet = new TableNameTasklet();
-        tableNameTasklet.setT24TableName("AA.BILL.DETAILS");
+    public TableNameTasklet tableNameAABill(TafjVocRepository tafjVocRepository, FileControlServiceImpl fileControlService) {
+        TableNameTasklet tableNameTasklet = new TableNameTasklet(tafjVocRepository, fileControlService);
+        tableNameTasklet.setT24TableName(AA_BILL_DETAILS);
         return tableNameTasklet;
     }
 
     @Bean
-    public QueryTasklet queryCustomerTasklet() {
-        QueryTasklet queryCusTasklet = new QueryTasklet();
+    public QueryTasklet queryCustomerTasklet(@Qualifier("jdbcTemplateT24") JdbcTemplate jdbcTemplateT24) {
+        QueryTasklet queryCusTasklet = new QueryTasklet(jdbcTemplateT24);
         queryCusTasklet.setColumnRef(null);
         queryCusTasklet.setDateFormat(null);
-        queryCusTasklet.setTableName("FBNK_CUSTOMER");
+        queryCusTasklet.setTableName(FBNK_CUSTOMER);
         queryCusTasklet.setChargement("Full");
         queryCusTasklet.setLastDate(null);
         return queryCusTasklet;
     }
 
     @Bean
-    public QueryTasklet queryFtTasklet() {
-        QueryTasklet queryCusTasklet = new QueryTasklet();
+    public QueryTasklet queryFtTasklet(@Qualifier("jdbcTemplateT24") JdbcTemplate jdbcTemplateT24) {
+        QueryTasklet queryCusTasklet = new QueryTasklet(jdbcTemplateT24);
         queryCusTasklet.setColumnRef("DEBIT_VALUE_DATE");
         queryCusTasklet.setDateFormat("VARCHAR");
         queryCusTasklet.setTableName("FBNK_FUNDS_TRANSFER001");
@@ -181,17 +198,14 @@ public class BatchConfiguration {
     }
 
     private String dateString() {
-//        return "20230401";
-        return "00000000";
-//        return YearMonth.now().minusMonths(3).atDay(1).format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-    }
+        return "00000000";    }
 
     @Bean
-    public QueryTasklet queryAABillTasklet() {
-        QueryTasklet queryCusTasklet = new QueryTasklet();
+    public QueryTasklet queryAABillTasklet(@Qualifier("jdbcTemplateT24") JdbcTemplate jdbcTemplateT24) {
+        QueryTasklet queryCusTasklet = new QueryTasklet(jdbcTemplateT24);
         queryCusTasklet.setColumnRef("PAYMENT_DATE");
         queryCusTasklet.setDateFormat("VARCHAR");
-        queryCusTasklet.setTableName("FBNK_AA_BILL_DETAILS");
+        queryCusTasklet.setTableName(FBNK_BILL_DETAILS);
         queryCusTasklet.setChargement("Incremental");
         queryCusTasklet.setLastDate(dateString());
         return queryCusTasklet;
@@ -209,10 +223,10 @@ public class BatchConfiguration {
     @StepScope
     public SynchronizedItemStreamReader<T24Table>
     oracleXmlReader(@Value("#{jobExecutionContext['QUERY']}") String query,
-                    @Value("#{stepExecutionContext['value']}") int value) throws Exception {
+                    @Value("#{stepExecutionContext['value']}") int value)  {
 
 
-        LOG.info("[Reader Query] : \n" + query);
+        LOG.info("[Reader Query] : \n{}", query);
 
         JdbcCursorItemReader<T24Table> reader = new JdbcCursorItemReader<>(dataSource, query, xmlRowMapper());
         reader.setFetchSize(FETCH_SIZE);
@@ -224,9 +238,7 @@ public class BatchConfiguration {
                 ps.setInt(2, value);
             });
         }
-        SynchronizedItemStreamReader<T24Table> synchronizedReader = new SynchronizedItemStreamReader<>(reader);
-
-        return synchronizedReader;
+        return new SynchronizedItemStreamReader<>(reader);
     }
 
     @Bean
@@ -245,19 +257,18 @@ public class BatchConfiguration {
     public SynchronizedItemStreamReader<HashMap<String, Object>>
     oracleBlobReader(@Value("#{jobExecutionContext['VIEW_QUERY']}") String query,
                      @Value("#{stepExecutionContext['minValue']}") Long minValue,
-                     @Value("#{stepExecutionContext['maxValue']}") Long maxValue) throws Exception {
+                     @Value("#{stepExecutionContext['maxValue']}") Long maxValue)  {
         String readerQuery = "SELECT * FROM ( " + query + " ) " +
                 "WHERE rowNumber >= " + minValue + " " +
                 "AND rowNumber <= " + maxValue;
 
-        LOG.trace("[minValue - maxValue] : " + minValue + " -> " + maxValue);
-        LOG.trace("[Reader Query] : \n" + readerQuery);
+        LOG.trace("[minValue - maxValue] : {} -> {}", minValue, maxValue);
+        LOG.trace("[Reader Query] : \n{}", readerQuery);
 
         JdbcCursorItemReader<HashMap<String, Object>> reader = new JdbcCursorItemReader<>(dataSource, readerQuery, blobRowMapper());
         reader.setFetchSize(FETCH_SIZE);
         reader.setConnectionAutoCommit(false);
-        SynchronizedItemStreamReader<HashMap<String, Object>> synchronizedReader = new SynchronizedItemStreamReader<>(reader);
-        return synchronizedReader;
+        return new SynchronizedItemStreamReader<>(reader);
     }
 
     @Bean
@@ -273,68 +284,68 @@ public class BatchConfiguration {
      ***************************************************************************/
 
     @Bean
-    public Step standardSelectionCustomerStep(JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
+    public Step standardSelectionCustomerStep(@Qualifier("standardSelectionCustomer") StandardSelectionTasklet standardSelectionCustomer, JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
         return new StepBuilder("Standard.Selection.CUSTOMER", jobRepository)
-                .tasklet(standardSelectionCustomer(null), transactionManager)
+                .tasklet(standardSelectionCustomer, transactionManager)
                 .build();
     }
 
     @Bean
-    public Step standardSelectionFTStep(JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
+    public Step standardSelectionFTStep(@Qualifier("standardSelectionFT") StandardSelectionTasklet standardSelectionFT, JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
         return new StepBuilder("Standard.Selection.FUNDS.TRANSFER", jobRepository)
-                .tasklet(standardSelectionFT(null), transactionManager)
+                .tasklet(standardSelectionFT, transactionManager)
                 .build();
     }
 
     @Bean
-    public Step standardSelectionAABillStep(JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
+    public Step standardSelectionAABillStep(@Qualifier("standardSelectionAABill") StandardSelectionTasklet standardSelectionAABill, JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
         return new StepBuilder("Standard.Selection.AA.BILL.DETAILS", jobRepository)
-                .tasklet(standardSelectionAABill(null), transactionManager)
+                .tasklet(standardSelectionAABill, transactionManager)
                 .build();
     }
 
     @Bean
-    public Step TableNameCustomerStep(JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
+    public Step tableNameCustomerStep(@Qualifier("tableNameCustomer") TableNameTasklet tableNameCustomer, JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
         return new StepBuilder("TableName.CUSTOMER", jobRepository)
-                .tasklet(tableNameCustomer(), transactionManager)
+                .tasklet(tableNameCustomer, transactionManager)
                 .build();
     }
 
     @Bean
-    public Step TableNameFTStep(JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
+    public Step tableNameFTStep(@Qualifier("tableNameFT") TableNameTasklet tableNameFT, JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
         return new StepBuilder("TableName.FT$HIS", jobRepository)
-                .tasklet(tableNameFT(), transactionManager)
+                .tasklet(tableNameFT, transactionManager)
                 .build();
     }
 
     @Bean
-    public Step TableNameAABillStep(JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
+    public Step tableNameAABillStep(@Qualifier("tableNameAABill") TableNameTasklet tableNameAABill, JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
         return new StepBuilder("TableName.AA.BILL.DETAILS", jobRepository)
-                .tasklet(tableNameAABill(), transactionManager)
+                .tasklet(tableNameAABill, transactionManager)
                 .build();
     }
 
     @Bean
     @JobScope
-    public Step cusQueryBuildingStep(JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
-        return new StepBuilder("QueryBuildingStep", jobRepository)
-                .tasklet(queryCustomerTasklet(), transactionManager)
+    public Step cusQueryBuildingStep(@Qualifier("queryCustomerTasklet") QueryTasklet queryCustomerTasklet, JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
+        return new StepBuilder(QUERY_BUILDING_STEP, jobRepository)
+                .tasklet(queryCustomerTasklet, transactionManager)
                 .build();
     }
 
     @Bean
     @JobScope
-    public Step ftQueryBuildingStep(JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
-        return new StepBuilder("QueryBuildingStep", jobRepository)
-                .tasklet(queryFtTasklet(), transactionManager)
+    public Step ftQueryBuildingStep(@Qualifier("queryFtTasklet") QueryTasklet queryFtTasklet, JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
+        return new StepBuilder(QUERY_BUILDING_STEP, jobRepository)
+                .tasklet(queryFtTasklet, transactionManager)
                 .build();
     }
 
     @Bean
     @JobScope
-    public Step aaQueryBuildingStep(JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
-        return new StepBuilder("QueryBuildingStep", jobRepository)
-                .tasklet(queryAABillTasklet(), transactionManager)
+    public Step aaQueryBuildingStep(@Qualifier("queryAABillTasklet") QueryTasklet queryAABillTasklet, JobRepository jobRepository,@Qualifier("t24TransactionManager") PlatformTransactionManager transactionManager) {
+        return new StepBuilder(QUERY_BUILDING_STEP, jobRepository)
+                .tasklet(queryAABillTasklet, transactionManager)
                 .build();
     }
 
@@ -347,8 +358,8 @@ public class BatchConfiguration {
     @Bean
     @JobScope
     public Step cusManager(PartitionHandler cusXMLPartitionHandler, JobRepository jobRepository)
-            throws Exception {
-        return new StepBuilder("CUSTOMER", jobRepository)
+    {
+        return new StepBuilder(CUSTOMER, jobRepository)
                 .partitioner("cusWorker", partitioner())
                 .partitionHandler(cusXMLPartitionHandler)
                 //.listener(managerStepListener(null, null, null, null))
@@ -358,7 +369,7 @@ public class BatchConfiguration {
     @Bean
     @JobScope
     public Step ftManager(PartitionHandler ftXMLPartitionHandler, JobRepository jobRepository) {
-        return new StepBuilder("FUNDS.TRANSFER$HIS", jobRepository)
+        return new StepBuilder(FUNDS_TRANSFER_HIS, jobRepository)
                 .partitioner("ftWorker", partitioner())
                 .partitionHandler(ftXMLPartitionHandler)
                 .build();
@@ -368,7 +379,7 @@ public class BatchConfiguration {
     @JobScope
     public Step aaManager(PartitionHandler aaXMLPartitionHandler, JobRepository jobRepository)
     {
-        return new StepBuilder("AA.BILL.DETAILS", jobRepository)
+        return new StepBuilder(AA_BILL_DETAILS, jobRepository)
                 .partitioner("aaWorker", partitioner())
                 .partitionHandler(aaXMLPartitionHandler)
                 .build();
@@ -386,35 +397,35 @@ public class BatchConfiguration {
      **********************/
 
     @Bean
-    public Step cusWorker(JdbcBatchItemWriter<com.alibaba.fastjson2.JSONObject> ItemWriter, JobRepository jobRepository,@Qualifier("biTransactionManager") PlatformTransactionManager transactionManager) throws Exception {
+    public Step cusWorker(JdbcBatchItemWriter<com.alibaba.fastjson2.JSONObject> itemWriter, JobRepository jobRepository,@Qualifier("biTransactionManager") PlatformTransactionManager transactionManager) {
         return new StepBuilder("cusWorker", jobRepository)
                 .<T24Table, com.alibaba.fastjson2.JSONObject>chunk(CHUNKS_NUMBER)
                 .transactionManager(transactionManager)
                 .reader(oracleXmlReader(null, 0))
                 .processor(cusXmlProcessor())
-                .writer(ItemWriter)
+                .writer(itemWriter)
                 .build();
     }
 
     @Bean
-    public Step ftWorker(JdbcBatchItemWriter<com.alibaba.fastjson2.JSONObject> ItemWriter, JobRepository jobRepository,@Qualifier("biTransactionManager") PlatformTransactionManager transactionManager) throws Exception {
+    public Step ftWorker(JdbcBatchItemWriter<com.alibaba.fastjson2.JSONObject> itemWriter, JobRepository jobRepository,@Qualifier("biTransactionManager") PlatformTransactionManager transactionManager) {
         return new StepBuilder("ftWorker", jobRepository)
                 .<T24Table, com.alibaba.fastjson2.JSONObject>chunk(CHUNKS_NUMBER)
                 .transactionManager(transactionManager)
                 .reader(oracleXmlReader(null, 0))
                 .processor(ftXmlProcessor())
-                .writer(ItemWriter)
+                .writer(itemWriter)
                 .build();
     }
 
     @Bean
-    public Step aaWorker(JdbcBatchItemWriter<com.alibaba.fastjson2.JSONObject> ItemWriter, JobRepository jobRepository,@Qualifier("biTransactionManager") PlatformTransactionManager transactionManager) throws Exception {
+    public Step aaWorker(JdbcBatchItemWriter<com.alibaba.fastjson2.JSONObject> itemWriter, JobRepository jobRepository,@Qualifier("biTransactionManager") PlatformTransactionManager transactionManager) {
         return new StepBuilder("aaWorker", jobRepository)
                 .<T24Table, com.alibaba.fastjson2.JSONObject>chunk(CHUNKS_NUMBER)
                 .transactionManager(transactionManager)
                 .reader(oracleXmlReader(null, 0))
                 .processor(aaBillXmlProcessor())
-                .writer(ItemWriter)
+                .writer(itemWriter)
                 .build();
     }
 
@@ -436,7 +447,7 @@ public class BatchConfiguration {
     @StepScope
     public XMLProcessor cusXmlProcessor() {
         XMLProcessor processor = new XMLProcessor();
-        processor.setOracleTableName("FBNK_CUSTOMER");
+        processor.setOracleTableName(FBNK_CUSTOMER);
         return processor;
     }
 
@@ -452,14 +463,14 @@ public class BatchConfiguration {
     @StepScope
     public XMLProcessor aaBillXmlProcessor() {
         XMLProcessor processor = new XMLProcessor();
-        processor.setOracleTableName("FBNK_AA_BILL_DETAILS");
+        processor.setOracleTableName(FBNK_BILL_DETAILS);
         return processor;
     }
 
 
     @Bean
     @StepScope
-    public BlobFilterProcessor BlobFilterProcessor() {
+    public BlobFilterProcessor blobFilterProcessor() {
         return new BlobFilterProcessor();
     }
 
@@ -481,11 +492,7 @@ public class BatchConfiguration {
         handler.setGridSize(workersNumber);
         handler.setStep(cusWorker);
 
-        try {
-            handler.afterPropertiesSet();
-        } catch (Exception e) {
-//      e.printStackTrace();
-        }
+        handler.afterPropertiesSet();
 
         return handler;
     }
@@ -499,11 +506,7 @@ public class BatchConfiguration {
         handler.setGridSize(workersNumber);
         handler.setStep(ftWorker);
 
-        try {
-            handler.afterPropertiesSet();
-        } catch (Exception e) {
-//      e.printStackTrace();
-        }
+        handler.afterPropertiesSet();
 
         return handler;
     }
@@ -516,11 +519,7 @@ public class BatchConfiguration {
         handler.setGridSize(workersNumber);
         handler.setStep(aaWorker);
 
-        try {
-            handler.afterPropertiesSet();
-        } catch (Exception e) {
-//      e.printStackTrace();
-        }
+        handler.afterPropertiesSet();
 
         return handler;
     }
@@ -534,7 +533,7 @@ public class BatchConfiguration {
 
     @Bean
     @JobScope
-    public Step BISyncCus(BISyncTasklet biSyncCusTasklet, JobRepository jobRepository,@Qualifier("biTransactionManager") PlatformTransactionManager platformTransactionManager) {
+    public Step bISyncCus(BISyncTasklet biSyncCusTasklet, JobRepository jobRepository,@Qualifier("biTransactionManager") PlatformTransactionManager platformTransactionManager) {
         return new StepBuilder(String.join("", Constants.BI_SYNC), jobRepository)
                 .tasklet(biSyncCusTasklet, platformTransactionManager)
                 .build();
@@ -542,17 +541,28 @@ public class BatchConfiguration {
 
     @Bean
     @StepScope
-    public BISyncTasklet biSyncCusTasklet(@Value("#{jobExecutionContext['" + Constants.BI_STANDARD_SELECTION + "']}") JSONObject ssMap) {
-        BISyncTasklet tasklet = new BISyncTasklet();
+    public BISyncTasklet biSyncCusTasklet(
+            @Value("#{jobExecutionContext['" + Constants.BI_STANDARD_SELECTION + "']}") JSONObject ssMap,
+            SchemaSourceRepository schemaSourceRepository,
+            SchemaSourceAuditRepository schemaSourceAuditRepository,
+            MetaDataRepository metaDataRepository,
+            ScheduledOpsRepository scheduledOpsRepository,
+            @Qualifier("jdbcBI") JdbcTemplate jdbcTemplate) {
+        BISyncTasklet tasklet = new BISyncTasklet(
+                schemaSourceRepository,
+                schemaSourceAuditRepository,
+                metaDataRepository,
+                scheduledOpsRepository,
+                jdbcTemplate);
         tasklet.setSs(ssMap);
-        tasklet.setT24TableName("CUSTOMER");
+        tasklet.setT24TableName(CUSTOMER);
         tasklet.setColonneRef(null);
         return tasklet;
     }
 
     @Bean
     @JobScope
-    public Step BISyncFt(BISyncTasklet biSyncFtTasklet, JobRepository jobRepository,@Qualifier("biTransactionManager")  PlatformTransactionManager platformTransactionManager) {
+    public Step bISyncFt(BISyncTasklet biSyncFtTasklet, JobRepository jobRepository,@Qualifier("biTransactionManager")  PlatformTransactionManager platformTransactionManager) {
         return new StepBuilder(String.join("", Constants.BI_SYNC), jobRepository)
                 .tasklet(biSyncFtTasklet, platformTransactionManager)
                 .build();
@@ -560,17 +570,28 @@ public class BatchConfiguration {
 
     @Bean
     @StepScope
-    public BISyncTasklet biSyncFtTasklet(@Value("#{jobExecutionContext['" + Constants.BI_STANDARD_SELECTION + "']}") JSONObject ssMap) {
-        BISyncTasklet tasklet = new BISyncTasklet();
+    public BISyncTasklet biSyncFtTasklet(
+            @Value("#{jobExecutionContext['" + Constants.BI_STANDARD_SELECTION + "']}") JSONObject ssMap,
+            SchemaSourceRepository schemaSourceRepository,
+            SchemaSourceAuditRepository schemaSourceAuditRepository,
+            MetaDataRepository metaDataRepository,
+            ScheduledOpsRepository scheduledOpsRepository,
+            @Qualifier("jdbcBI") JdbcTemplate jdbcTemplate) {
+        BISyncTasklet tasklet = new BISyncTasklet(
+                schemaSourceRepository,
+                schemaSourceAuditRepository,
+                metaDataRepository,
+                scheduledOpsRepository,
+                jdbcTemplate);
         tasklet.setSs(ssMap);
-        tasklet.setT24TableName("FUNDS.TRANSFER$HIS");
+        tasklet.setT24TableName(FUNDS_TRANSFER_HIS);
         tasklet.setColonneRef("DEBIT_VALUE_DATE");
         return tasklet;
     }
 
     @Bean
     @JobScope
-    public Step BISyncAaBill(BISyncTasklet biSyncAaBillTasklet, JobRepository jobRepository,@Qualifier("biTransactionManager")  PlatformTransactionManager platformTransactionManager) {
+    public Step bISyncAaBill(BISyncTasklet biSyncAaBillTasklet, JobRepository jobRepository,@Qualifier("biTransactionManager")  PlatformTransactionManager platformTransactionManager) {
         return new StepBuilder(String.join("", Constants.BI_SYNC), jobRepository)
                 .tasklet(biSyncAaBillTasklet, platformTransactionManager)
                 .build();
@@ -578,73 +599,79 @@ public class BatchConfiguration {
 
     @Bean
     @StepScope
-    public BISyncTasklet biSyncAaBillTasklet(@Value("#{jobExecutionContext['" + Constants.BI_STANDARD_SELECTION + "']}") JSONObject ssMap) {
-        BISyncTasklet tasklet = new BISyncTasklet();
+    public BISyncTasklet biSyncAaBillTasklet(
+            @Value("#{jobExecutionContext['" + Constants.BI_STANDARD_SELECTION + "']}") JSONObject ssMap,
+            SchemaSourceRepository schemaSourceRepository,
+            SchemaSourceAuditRepository schemaSourceAuditRepository,
+            MetaDataRepository metaDataRepository,
+            ScheduledOpsRepository scheduledOpsRepository,
+            @Qualifier("jdbcBI") JdbcTemplate jdbcTemplate) {
+        BISyncTasklet tasklet = new BISyncTasklet(
+                schemaSourceRepository,
+                schemaSourceAuditRepository,
+                metaDataRepository,
+                scheduledOpsRepository,
+                jdbcTemplate);
         tasklet.setSs(ssMap);
-        tasklet.setT24TableName("AA.BILL.DETAILS");
+        tasklet.setT24TableName(AA_BILL_DETAILS);
         tasklet.setColonneRef("PAYMENT_DATE");
         return tasklet;
     }
 
     @Bean
     @StepScope
-    public Json_Flattener normalizationCusTasklet() {
-        Json_Flattener tasklet = new Json_Flattener();
-        tasklet.setTable("CUSTOMER");
+    public Json_Flattener normalizationCusTasklet(@Qualifier("jdbcBI") JdbcTemplate jdbcTemplate) {
+        Json_Flattener tasklet = new Json_Flattener(jdbcTemplate);
+        tasklet.setTable(CUSTOMER);
         return tasklet;
     }
 
     @Bean
     @JobScope
-    public Step jsonNormalizationCusStep(JobRepository jobRepository,@Qualifier("biTransactionManager")  PlatformTransactionManager platformTransactionManager) {
-        return new StepBuilder(String.join("", "JSON_NORMALIZATION"), jobRepository)
-                .tasklet(normalizationCusTasklet(), platformTransactionManager)
+    public Step jsonNormalizationCusStep(JobRepository jobRepository,@Qualifier("biTransactionManager")  PlatformTransactionManager platformTransactionManager,
+                                         Json_Flattener normalizationCusTasklet) {
+        return new StepBuilder(String.join("", JSON_NORMALIZATION), jobRepository)
+                .tasklet(normalizationCusTasklet, platformTransactionManager)
                 .build();
     }
 
 
     @Bean
     @StepScope
-    public Json_Flattener normalizationFtTasklet() {
-        Json_Flattener tasklet = new Json_Flattener();
+    public Json_Flattener normalizationFtTasklet(@Qualifier("jdbcBI") JdbcTemplate jdbcTemplate) {
+        Json_Flattener tasklet = new Json_Flattener(jdbcTemplate);
         tasklet.setTable("FUNDS_TRANSFER#HIS");
         return tasklet;
     }
 
     @Bean
     @JobScope
-    public Step jsonNormalizationFtStep(JobRepository jobRepository,@Qualifier("biTransactionManager")  PlatformTransactionManager platformTransactionManager) {
-        return new StepBuilder(String.join("", "JSON_NORMALIZATION"), jobRepository)
-                .tasklet(normalizationFtTasklet(), platformTransactionManager)
+    public Step jsonNormalizationFtStep(JobRepository jobRepository,@Qualifier("biTransactionManager")  PlatformTransactionManager platformTransactionManager,
+                                        Json_Flattener normalizationFtTasklet) {
+        return new StepBuilder(String.join("", JSON_NORMALIZATION), jobRepository)
+                .tasklet(normalizationFtTasklet, platformTransactionManager)
                 .build();
     }
 
 
     @Bean
     @StepScope
-    public Json_Flattener normalizationAaBillTasklet() {
-        Json_Flattener tasklet = new Json_Flattener();
+    public Json_Flattener normalizationAaBillTasklet(@Qualifier("jdbcBI") JdbcTemplate jdbcTemplate) {
+        Json_Flattener tasklet = new Json_Flattener(jdbcTemplate);
         tasklet.setTable("AA_BILL_DETAILS");
         return tasklet;
     }
 
     @Bean
     @JobScope
-    public Step jsonNormalizationAaBillStep(JobRepository jobRepository,@Qualifier("biTransactionManager")  PlatformTransactionManager platformTransactionManager) {
-        return new StepBuilder(String.join("", "JSON_NORMALIZATION"), jobRepository)
-                .tasklet(normalizationAaBillTasklet(), platformTransactionManager)
+    public Step jsonNormalizationAaBillStep(JobRepository jobRepository,@Qualifier("biTransactionManager")  PlatformTransactionManager platformTransactionManager,
+                                            Json_Flattener normalizationAaBillTasklet) {
+        return new StepBuilder(String.join("", JSON_NORMALIZATION), jobRepository)
+                .tasklet(normalizationAaBillTasklet, platformTransactionManager)
                 .build();
     }
 
 
-//    @Bean
-//    public ThreadPoolTaskExecutor taskExecutor() {
-//        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-//        executor.setCorePoolSize(workersNumber);
-//        executor.setMaxPoolSize(workersNumber + 1);
-//
-//        return executor;
-//    }
 
     @Bean
     public AsyncTaskExecutor taskExecutor() {
@@ -668,7 +695,7 @@ public class BatchConfiguration {
 
     @Bean
     @StepScope
-    public JdbcBatchItemWriter<com.alibaba.fastjson2.JSONObject> ItemWriter(@Value("#{jobExecutionContext['SQL_QUERY']}") String query) {
+    public JdbcBatchItemWriter<com.alibaba.fastjson2.JSONObject> itemWriter(@Value("#{jobExecutionContext['SQL_QUERY']}") String query) {
         JdbcBatchItemWriter<com.alibaba.fastjson2.JSONObject> writer = new JdbcBatchItemWriter<>();
         writer.setDataSource(biDataSource);
         writer.setSql(query);
@@ -677,48 +704,47 @@ public class BatchConfiguration {
     }
 
     @Bean
-    public Flow customerFlow(Step cobStatus, Step TableNameCustomerStep, Step standardSelectionCustomerStep, Step cusQueryBuildingStep, Step BISyncCus, Step cusManager, Step jsonNormalizationCusStep) {
-        return new FlowBuilder<SimpleFlow>("CUSTOMER")
+    public Flow customerFlow(Step cobStatus, Step tableNameCustomerStep, Step standardSelectionCustomerStep, Step cusQueryBuildingStep, Step bISyncCus, Step cusManager, Step jsonNormalizationCusStep) {
+        return new FlowBuilder<SimpleFlow>(CUSTOMER)
                 .start(cobStatus)
-                .next(TableNameCustomerStep)
+                .next(tableNameCustomerStep)
                 .next(standardSelectionCustomerStep)
                 .next(cusQueryBuildingStep)
-                .next(BISyncCus)
+                .next(bISyncCus)
                 .next(cusManager)
                 .next(jsonNormalizationCusStep)
                 .build();
     }
 
     @Bean
-    public Flow aaBillFlow(Step cobStatus, Step TableNameAABillStep, Step standardSelectionAABillStep, Step aaQueryBuildingStep, Step BISyncAaBill, Step aaManager, Step jsonNormalizationAaBillStep) {
-        return new FlowBuilder<SimpleFlow>("AA.BILL.DETAILS")
+    public Flow aaBillFlow(Step cobStatus, Step tableNameAABillStep, Step standardSelectionAABillStep, Step aaQueryBuildingStep, Step bISyncAaBill, Step aaManager, Step jsonNormalizationAaBillStep) {
+        return new FlowBuilder<SimpleFlow>(AA_BILL_DETAILS)
                 .start(cobStatus)
-                .next(TableNameAABillStep)
+                .next(tableNameAABillStep)
                 .next(standardSelectionAABillStep)
                 .next(aaQueryBuildingStep)
-                .next(BISyncAaBill)
+                .next(bISyncAaBill)
                 .next(aaManager)
                 .next(jsonNormalizationAaBillStep)
                 .build();
     }
 
     @Bean
-    public Flow ftFlow(Step cobStatus, Step TableNameFTStep, Step standardSelectionFTStep, Step ftQueryBuildingStep, Step BISyncFt, Step ftManager, Step jsonNormalizationFtStep) {
-        return new FlowBuilder<SimpleFlow>("FUNDS.TRANSFER$HIS")
+    public Flow ftFlow(Step cobStatus, Step tableNameFTStep, Step standardSelectionFTStep, Step ftQueryBuildingStep, Step bISyncFt, Step ftManager, Step jsonNormalizationFtStep) {
+        return new FlowBuilder<SimpleFlow>(FUNDS_TRANSFER_HIS)
                 .start(cobStatus)
-                .next(TableNameFTStep)
+                .next(tableNameFTStep)
                 .next(standardSelectionFTStep)
                 .next(ftQueryBuildingStep)
-                .next(BISyncFt)
+                .next(bISyncFt)
                 .next(ftManager)
                 .next(jsonNormalizationFtStep)
                 .build();
     }
 
-    @Bean
-    @Qualifier("t24")
+    @Bean(name = "t24Job")
     public Job job(Flow ftFlow, Flow customerFlow, Flow aaBillFlow, JobRepository jobRepository)
-            throws Exception {
+    {
         return new JobBuilder("T24", jobRepository)
                 .incrementer(new RunIdIncrementer())
                 .start(customerFlow)
@@ -728,28 +754,26 @@ public class BatchConfiguration {
                 .build();
     }
 
-    @Bean
-    @Qualifier("loadSchema")
-    public Job loadJob(Step TableNameCustomerStep, Step standardSelectionCustomerStep, Step cusQueryBuildingStep, Step BISyncCus, Step TableNameAABillStep, Step standardSelectionAABillStep, Step aaQueryBuildingStep, Step BISyncAaBill, Step TableNameFTStep, Step standardSelectionFTStep, Step ftQueryBuildingStep, Step BISyncFt, JobRepository jobRepository) {
+    @Bean("loadSchema")
+    public Job loadJob(Step tableNameCustomerStep, Step standardSelectionCustomerStep, Step cusQueryBuildingStep, Step bISyncCus, Step tableNameAABillStep, Step standardSelectionAABillStep, Step aaQueryBuildingStep, Step bISyncAaBill, Step tableNameFTStep, Step standardSelectionFTStep, Step ftQueryBuildingStep, Step bISyncFt, JobRepository jobRepository) {
         return new JobBuilder("SCHEMA_LOADER", jobRepository)
                 .incrementer(new RunIdIncrementer())
-                .start(TableNameFTStep)
+                .start(tableNameFTStep)
                 .next(standardSelectionFTStep)
                 .next(ftQueryBuildingStep)
-                .next(BISyncFt)
-                .next(TableNameAABillStep)
+                .next(bISyncFt)
+                .next(tableNameAABillStep)
                 .next(standardSelectionAABillStep)
                 .next(aaQueryBuildingStep)
-                .next(BISyncAaBill)
-                .next(TableNameCustomerStep)
+                .next(bISyncAaBill)
+                .next(tableNameCustomerStep)
                 .next(standardSelectionCustomerStep)
                 .next(cusQueryBuildingStep)
-                .next(BISyncCus)
+                .next(bISyncCus)
                 .build();
     }
 
-    @Bean
-    @Qualifier("customer")
+    @Bean(name = "customer")
     public Job customerJob(Flow customerFlow, JobRepository jobRepository) {
         return new JobBuilder("CUSTOMER.JOB", jobRepository)
                 .incrementer(new RunIdIncrementer())
@@ -758,8 +782,7 @@ public class BatchConfiguration {
                 .build();
     }
 
-    @Bean
-    @Qualifier("bill.details")
+    @Bean(name = "billDetails")
     public Job billDetailsJob(Flow aaBillFlow, JobRepository jobRepository) {
         return new JobBuilder("AA.BILL.DETAILS.JOB", jobRepository)
                 .incrementer(new RunIdIncrementer())
@@ -768,8 +791,7 @@ public class BatchConfiguration {
                 .build();
     }
 
-    @Bean
-    @Qualifier("ft.his")
+    @Bean(name = "ftHis")
     public Job ftJob(Flow ftFlow, JobRepository jobRepository) {
         return new JobBuilder("FT.HIS.JOB", jobRepository)
                 .incrementer(new RunIdIncrementer())

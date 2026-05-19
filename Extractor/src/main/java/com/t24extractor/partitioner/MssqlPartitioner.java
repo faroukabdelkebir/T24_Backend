@@ -14,7 +14,6 @@ public class MssqlPartitioner implements Partitioner {
 
         int min = 0;
 
-        int targetSize = gridSize - min;
 
         while (min < gridSize)
         {

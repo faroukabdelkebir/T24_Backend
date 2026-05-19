@@ -9,7 +9,6 @@ import org.springframework.batch.core.step.StepContribution;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.infrastructure.repeat.RepeatStatus;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -21,11 +20,13 @@ public class QueryTasklet implements Tasklet {
     public static final String AND_CLAUSE = "AND";
     private static final CharSequence SPACE = " ";
 
-    @Autowired
-    @Qualifier("jdbcTemplateT24")
-    private JdbcTemplate jdbcTemplate;
+    private final JdbcTemplate jdbcTemplate;
 
     private final SqlOps sqlOps = new OracleOps();
+
+    public QueryTasklet(@Qualifier("jdbcTemplateT24") JdbcTemplate jdbcTemplate) {
+        this.jdbcTemplate = jdbcTemplate;
+    }
 
     @Setter
     private String tableName;
@@ -77,44 +78,52 @@ public class QueryTasklet implements Tasklet {
     }
 
     private String getQueryCondition() {
-        String queryCondition = "";
-
         switch (chargement) {
-            case "Full", "Incremental-id" -> queryCondition = "";
+            case "Full", "Incremental-id" -> {
+                return "";
+            }
             case "Incremental" -> {
-                if ((columnRef == null) || (columnRef.isEmpty())) {
-                    queryCondition = "";
-                } else {
-                    if ((futureDate == null) || (futureDate.isEmpty())) {
-                        if (lastDate.equals("00000000")) {
-                            queryCondition = "";
-                        } else {
-                            if ((dateFormat == null) || dateFormat.isEmpty() || dateFormat.equalsIgnoreCase("varchar")) {
-                                queryCondition = " WHERE " + columnRef + " > " + "'" + lastDate + "'";
-                            } else {
-                                queryCondition = " WHERE " + columnRef + " > " + lastDate;
-                            }
-                        }
-                    } else {
-                        if ((dateFormat == null) || dateFormat.isEmpty() || dateFormat.equalsIgnoreCase("varchar")) {
-                            queryCondition = " WHERE " + columnRef + " > '" + lastDate + "'" +
-                                    " AND " + columnRef + " <= '" + futureDate + "'";
-                        } else {
-                            queryCondition = " WHERE " + columnRef + " > " + lastDate +
-                                    " AND " + columnRef + " <= " + futureDate;
-                        }
-                    }
-                }
+                return incrementalCondition();
             }
             case "Incremental-specific" -> {
-                if (lastDate.equals("000000")) {
-                    queryCondition = "";
-                } else {
-                    queryCondition = " WHERE RECID like CONCAT('%-', to_char(sysdate, 'yyyymm'))" +
-                            " OR RECID like CONCAT('%-', to_char(sysdate, 'yyyymm')-1)";
-                }
+                return incrementalSpecificCondition();
+            }
+            default -> {
+                return "";
             }
         }
-        return queryCondition;
+    }
+
+    private String incrementalCondition() {
+        if (isBlank(columnRef)) {
+            return "";
+        }
+        if (isBlank(futureDate)) {
+            if ("00000000".equals(lastDate)) {
+                return "";
+            }
+            return isVarcharDate()
+                    ? WHERE_CLAUSE + columnRef + " > " + "'" + lastDate + "'"
+                    : WHERE_CLAUSE + columnRef + " > " + lastDate;
+        }
+        return isVarcharDate()
+                ? WHERE_CLAUSE + columnRef + " > '" + lastDate + "'" + " AND " + columnRef + " <= '" + futureDate + "'"
+                : WHERE_CLAUSE + columnRef + " > " + lastDate + " AND " + columnRef + " <= " + futureDate;
+    }
+
+    private String incrementalSpecificCondition() {
+        if ("000000".equals(lastDate)) {
+            return "";
+        }
+        return " WHERE RECID like CONCAT('%-', to_char(sysdate, 'yyyymm'))" +
+                " OR RECID like CONCAT('%-', to_char(sysdate, 'yyyymm')-1)";
+    }
+
+    private boolean isVarcharDate() {
+        return isBlank(dateFormat) || "varchar".equalsIgnoreCase(dateFormat);
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isEmpty();
     }
 }

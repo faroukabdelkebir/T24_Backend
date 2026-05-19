@@ -11,8 +11,6 @@ import com.t24extractor.repository.t24_repo.StandardSelectionRepository;
 import com.t24extractor.repository.t24_repo.TafjVocRepository;
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
 import org.springframework.boot.jdbc.autoconfigure.DataSourceProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.ApplicationContext;
@@ -25,9 +23,7 @@ import org.springframework.data.jdbc.core.convert.*;
 import org.springframework.data.jdbc.core.dialect.JdbcOracleDialect;
 import org.springframework.data.jdbc.repository.config.EnableJdbcRepositories;
 import org.springframework.data.relational.core.dialect.Dialect;
-import org.springframework.data.relational.core.dialect.OracleDialect;
 import org.springframework.data.relational.core.mapping.DefaultNamingStrategy;
-import org.springframework.data.relational.core.mapping.NamingStrategy;
 import org.springframework.data.relational.core.mapping.RelationalMappingContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcOperations;
@@ -36,7 +32,6 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import javax.sql.DataSource;
-import java.util.Optional;
 
 @Configuration
 @EnableJdbcRepositories(
@@ -56,12 +51,11 @@ public class T24DataSourceConfiguration {
     }
 
     @Bean(name = "t24TransactionManager")
-    public PlatformTransactionManager t24TransactionManager(@Qualifier("T24") DataSource ds) {
+    public PlatformTransactionManager t24TransactionManager(@Qualifier("t24") DataSource ds) {
         return new DataSourceTransactionManager(ds);
     }
 
-    @Bean
-    @Qualifier("T24")
+    @Bean(name = "t24")
     public DataSource t24DataSource() {
         HikariDataSource ds = new HikariDataSource();
 
@@ -73,17 +67,15 @@ public class T24DataSourceConfiguration {
         return ds;
     }
 
-    @Bean
-    @Qualifier("jdbcTemplateT24")
-    public JdbcTemplate jdbcTemplateLogic(@Qualifier("T24") DataSource ds) {
+    @Bean(name = "jdbcTemplateT24")
+    public JdbcTemplate jdbcTemplateLogic(@Qualifier("t24") DataSource ds) {
 
         return new JdbcTemplate(ds);
     }
 
 
-    @Bean
-    @Qualifier("t24JdbcOperations")
-    NamedParameterJdbcOperations t24JdbcOperations(@Qualifier("T24") DataSource dataSource) {
+    @Bean(name = "t24JdbcOperations")
+    NamedParameterJdbcOperations t24JdbcOperations(@Qualifier("t24") DataSource dataSource) {
         return new NamedParameterJdbcTemplate(dataSource);
     }
 

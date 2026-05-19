@@ -4,19 +4,14 @@ import com.t24extractor.model.TafjVoc;
 import com.t24extractor.repository.t24_repo.TafjVocRepository;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.NonNull;
 import org.springframework.batch.core.step.StepContribution;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.infrastructure.repeat.RepeatStatus;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.NoSuchElementException;
-
-/**
- * @Author: Rami Bahrouni
- * @Email: rami.bahrouni@banquezitouna.com
- */
 
 /**
  * Ce tasklet sert à requeter les noms des tables T24 sur la base de données (Oracle)
@@ -26,17 +21,20 @@ import java.util.NoSuchElementException;
 @Component
 public class TableNameTasklet implements Tasklet {
 
-    @Autowired
-    private TafjVocRepository tafjVocRepository;
+    private final TafjVocRepository tafjVocRepository;
 
-    @Autowired
-    private FileControlServiceImpl fileControlService;
+    private final FileControlServiceImpl fileControlService;
+
+    public TableNameTasklet(TafjVocRepository tafjVocRepository, FileControlServiceImpl fileControlService) {
+        this.tafjVocRepository = tafjVocRepository;
+        this.fileControlService = fileControlService;
+    }
 
     @Setter
     String t24TableName;
 
     @Override
-    public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
+    public RepeatStatus execute(@NonNull StepContribution contribution, ChunkContext chunkContext) throws Exception {
 
         log.debug("T24 Name {}", this.t24TableName);
 

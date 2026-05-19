@@ -7,7 +7,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.TimeZone;
-//import org.springframework.boot.SpringApplication;
+
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -24,10 +24,10 @@ public class ExtractorApplication
 
 		String appNameArg = generateAppNameArgument();
 		
-		List<String> argsList = new ArrayList<String>(Arrays.asList(args));
+		List<String> argsList = new ArrayList<>(Arrays.asList(args));
 		argsList.add(appNameArg);
 		
-		String newArgs[] = argsList.toArray(new String[argsList.size()]) ;
+		String[] newArgs = argsList.toArray(new String[argsList.size()]) ;
 
 		SpringApplication.run(ExtractorApplication.class, newArgs) ;
 	}

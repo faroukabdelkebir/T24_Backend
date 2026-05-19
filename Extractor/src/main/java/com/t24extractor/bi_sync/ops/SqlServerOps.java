@@ -27,26 +27,26 @@ public class SqlServerOps extends SqlOps {
         if (!fieldsOnly(set).isEmpty()) {
             fields = ", "+fields;
         }
-        String sb = "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name='" + table + "') " +
+        String sb = IF_NOT_EXISTS_TABLE_PREFIX + table + "') " +
                 "CREATE TABLE " + escapeTableName(table) + "(" +
                 escapeColumn(ID) + ID_TYPE + ", \n" +
                 escapeColumn(ORIGINAL_ID) + ORIGINAL_ID_TYPE + " ,\n" +
-                escapeColumn("INSERT_DATE") + " " + "BIGINT default replace(replace(replace(CONVERT([varchar](19),sysdatetime(),20),'-',''),':',''),' ','')" +" \n" +
+                escapeColumn(INSERT_DATE_COLUMN) + " " + "BIGINT default replace(replace(replace(CONVERT([varchar](19),sysdatetime(),20),'-',''),':',''),' ','')" +" \n" +
                 fields + ", \n" +
-                "INDEX ins_date_idx NONCLUSTERED ("+escapeColumn("INSERT_DATE")+") \n" +
+                "INDEX ins_date_idx NONCLUSTERED ("+escapeColumn(INSERT_DATE_COLUMN)+") \n" +
                 ")";
 
         jdbcTemplate.batchUpdate(sb);
     }
 
     @Override
-    public void createDefaultDestTable(JdbcTemplate jdbcTemplate, String table) throws Exception {
-        String sb = "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name='" + table + "') " +
+    public void createDefaultDestTable(JdbcTemplate jdbcTemplate, String table) {
+        String sb = IF_NOT_EXISTS_TABLE_PREFIX + table + "') " +
                 "CREATE TABLE " + escapeTableName(table) + "(" +
                 escapeColumn(ID) + ID_TYPE + ", \n" +
                 escapeColumn(ORIGINAL_ID) + ORIGINAL_ID_TYPE + " ,\n" +
-                escapeColumn("INSERT_DATE") + " " + "BIGINT default replace(replace(replace(CONVERT([varchar](19),sysdatetime(),20),'-',''),':',''),' ','')" +", \n" +
-                "INDEX ins_date_idx NONCLUSTERED ("+escapeColumn("INSERT_DATE")+") \n" +
+                escapeColumn(INSERT_DATE_COLUMN) + " " + "BIGINT default replace(replace(replace(CONVERT([varchar](19),sysdatetime(),20),'-',''),':',''),' ','')" +", \n" +
+                "INDEX ins_date_idx NONCLUSTERED ("+escapeColumn(INSERT_DATE_COLUMN)+") \n" +
                 ")";
         jdbcTemplate.batchUpdate(sb);
     }
@@ -54,7 +54,7 @@ public class SqlServerOps extends SqlOps {
     @Override
     public void createRawTable(JdbcTemplate jdbcTemplate, String table) {
         String rawTable = RAW_PREFIX+table;
-        String sb = "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name='" + rawTable + "') " +
+        String sb = IF_NOT_EXISTS_TABLE_PREFIX + rawTable + "') " +
                 "CREATE TABLE " + escapeTableName(rawTable) + "(" +
                 "raw_id   NVARCHAR(255)," + "\n" +
                 "raw_data VARCHAR(MAX)" +
@@ -64,7 +64,7 @@ public class SqlServerOps extends SqlOps {
 
 
     @Override
-    public String insertConstruction(String table, Set<SchemaSource> set) throws Exception {
+    public String insertConstruction(String table, Set<SchemaSource> set) {
 
 
         return "INSERT INTO " + escapeTableName(table) + "(" +
@@ -75,7 +75,7 @@ public class SqlServerOps extends SqlOps {
     }
 
     @Override
-    public String mergeConstruction(String table, Set<SchemaSource> set) throws Exception {
+    public String mergeConstruction(String table, Set<SchemaSource> set) {
 
         StringBuilder sql = new StringBuilder();
         StringBuilder idCol = new StringBuilder(escapeColumn("_id"));
@@ -105,10 +105,10 @@ public class SqlServerOps extends SqlOps {
     }
 
     @Override
-    public void addCol(JdbcTemplate jdbcTemplate, String table, String column, String DataType) {
+    public void addCol(JdbcTemplate jdbcTemplate, String table, String column, String dataType) {
         String sql = existsQuery(table);
         sql += "ALTER TABLE " + table + "\n" +
-                "ADD " + escapeColumn(column) + " " + getDataType(DataType);
+                "ADD " + escapeColumn(column) + " " + getDataType(dataType);
         jdbcTemplate.batchUpdate(sql);
     }
 
@@ -125,7 +125,7 @@ public class SqlServerOps extends SqlOps {
     @Override
     public Set<String> destColumns(JdbcTemplate jdbcTemplate, String table) {
         String sql = "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS\n" +
-                "WHERE TABLE_NAME = N'" + table + "' AND COLUMN_NAME NOT IN ('_id', 'ORIGINAL_ID', 'INSERT_DATE')";
+                "WHERE TABLE_NAME = N'" + table + "' AND COLUMN_NAME NOT IN ('_id', 'ORIGINAL_ID', '" + INSERT_DATE_COLUMN + "')";
 
         return new HashSet<>(jdbcTemplate.queryForList(sql, String.class));
     }
@@ -193,6 +193,7 @@ public class SqlServerOps extends SqlOps {
         return countTop;
     }
 
+    @Override
     public Long countAll(JdbcTemplate jdbcTemplate, String table) {
         Long count = 0L;
         try {

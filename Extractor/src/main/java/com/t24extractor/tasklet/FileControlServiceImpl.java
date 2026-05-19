@@ -3,7 +3,6 @@ package com.t24extractor.tasklet;
 import com.t24extractor.model.FileControl;
 import com.t24extractor.repository.t24_repo.FileControlRepository;
 import com.t24extractor.utils.Renamer;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.NoSuchElementException;
@@ -12,10 +11,13 @@ import java.util.NoSuchElementException;
 public class FileControlServiceImpl implements IFileControlService{
 
 
-    @Autowired
-    FileControlRepository fileControlRepository;
+    private final FileControlRepository fileControlRepository;
 
     private final Renamer renamer = new Renamer();
+
+    public FileControlServiceImpl(FileControlRepository fileControlRepository) {
+        this.fileControlRepository = fileControlRepository;
+    }
 
     @Override
     public String classification(String recid) {

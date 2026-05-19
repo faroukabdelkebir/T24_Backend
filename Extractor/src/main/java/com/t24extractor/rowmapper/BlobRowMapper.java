@@ -1,6 +1,5 @@
 package com.t24extractor.rowmapper;
 
-import com.t24extractor.decider.ExecutionFlowDecider;
 import com.t24extractor.tasklet.StandardSelectionTasklet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,14 +12,14 @@ public class BlobRowMapper implements RowMapper<HashMap<String, Object>>
 {
 
 
-    private static final Logger LOG = LoggerFactory.getLogger(ExecutionFlowDecider.class) ;
+    private static final Logger LOG = LoggerFactory.getLogger(BlobRowMapper.class) ;
 
     @Override
     public HashMap<String, Object> mapRow(ResultSet resultSet, int i) throws SQLException 
     {
         HashMap<String, Object> t24BlobItem = new HashMap<>();
         t24BlobItem.put("_id", resultSet.getString("FIELD_ID"));
-        for (String field : StandardSelectionTasklet.blobViewFields)
+        for (String field : StandardSelectionTasklet.getBlobViewFields())
         {
         	try
         	{
@@ -28,7 +27,7 @@ public class BlobRowMapper implements RowMapper<HashMap<String, Object>>
         	}
         	catch(Exception ex)
         	{
-        		LOG.trace("[BlobRowMapper] Erreur de mapping : " + field);
+        		LOG.trace("[BlobRowMapper] Erreur de mapping : {} " , field);
         	}    	
         }
         

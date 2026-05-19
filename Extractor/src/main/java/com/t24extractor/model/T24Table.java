@@ -11,5 +11,5 @@ public class T24Table
 {
     @Id
     private String recid ;
-    private String xml_record ;
+    private String xmlRecord ;
 }

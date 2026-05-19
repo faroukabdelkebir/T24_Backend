@@ -14,5 +14,5 @@ public class StandardSelectionRecord implements Serializable {
         @Column("RECID")
         private String recid ;
         @Column("XMLRECORD")
-        private String xml_record ;
+        private String xmlRecord ;
 }
