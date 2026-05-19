@@ -1,6 +1,6 @@
 package com.t24extractor.model;
 
-import jakarta.annotation.Generated;
+
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import org.springframework.data.annotation.Id;

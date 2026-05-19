@@ -7,20 +7,23 @@ import java.util.Locale;
 import java.util.Set;
 
 public class Constants {
+    private Constants() {
+        /* This utility class should not be instantiated */
+    }
+
     /**
      * La variable ci-dessous représente les colonnes ou lesquelles leur existence dans la structure de chaque table est primordiale
      * @_id represente la clé unique génerée de T24 (RECID) sauf le nommage a été altéré pour respecter la structure du MongoDB ou la clé primaire est _id.
      * @ORIGINAL_ID est une colonne génerée de la colonne _idpour faciliter l'opération du regroupement entre les tables live & History
      * @INSERT_DATE est une colonne générée lors de l'insertion de la ligne en SQLServer.
      */
-    public static final Set<String> mandatoryColumns = new HashSet<>(Arrays.asList("_id", "ORIGINAL_ID", "INSERT_DATE"));
+    public static final String ORIGINAL_ID = "ORIGINAL_ID";
+    public static final String INSERT_DATE_COLUMN = "INSERT_DATE";
+    protected static final Set<String> mandatoryColumns = new HashSet<>(Arrays.asList("_id", ORIGINAL_ID, INSERT_DATE_COLUMN));
 
     public static final String VIEW_PREFIX = "V_";
 
     public static final String ID = "_id";
-    public static final String ORIGINAL_ID = "ORIGINAL_ID";
-
-    public static final int FETCH_SIZE = 2000;
 
     public static final int CHUNK_SIZE = 700;
 
@@ -78,7 +81,6 @@ public class Constants {
     public static final String QUERY_BUILDER = "QUERY_BUILDER";
     public static final String T24_SELECTION_NAME_PARAMETER = "T24_Selection_Name";
     public static final String T24_DATE_PREFIX = "T24Date";
-    //    public static final String T24_SELECTION_NAME_PARAMETER = "EXTRACTED";
     public static final int INSERT_CODE = 0;
     public static final int UPDATE_CODE = 1;
     public static final int RETRY_COUNT0 = 0;
@@ -100,6 +102,20 @@ public class Constants {
     public static final String COUNT_QUERY = "SELECT COUNT (RECID) FROM ";
     public static final String BASE_QUERY = "SELECT RECID, XMLRECORD FROM ";
     public static final String SCHEDULED_OPS_QUERY = "SELECT table_name, column_name, op FROM " + SCHEDULED_OPS + " WHERE table_name = :table";
+    public static final String IF_NOT_EXISTS_TABLE_PREFIX = "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name='";
 
     public static final String RECID = "TN0010001";
+
+    public static final String RUN_ID = "run.id";
+
+
+    public static final int CHUNKS_NUMBER = 700;
+    public static final int FETCH_SIZE = 1000;
+    public static final String FUNDS_TRANSFER_HIS = "FUNDS.TRANSFER$HIS";
+    public static final String FBNK_CUSTOMER = "FBNK_CUSTOMER";
+    public static final String FBNK_BILL_DETAILS = "FBNK_AA_BILL_DETAILS";
+    public static final String CUSTOMER = "CUSTOMER";
+    public static final String JSON_NORMALIZATION = "JSON_NORMALIZATION";
+    public static final String QUERY_BUILDING_STEP = "QueryBuildingStep";
+    public static final String AA_BILL_DETAILS = "AA.BILL.DETAILS";
 }

@@ -17,17 +17,13 @@ import org.jetbrains.annotations.NotNull;
 import org.json.JSONObject;
 import org.springframework.batch.core.ExitStatus;
 
-import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.StepContribution;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.infrastructure.repeat.RepeatStatus;
-import org.springframework.beans.factory.InitializingBean;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
-import org.springframework.util.Assert;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -39,27 +35,36 @@ import static com.t24extractor.commons.Constants.*;
 @Slf4j
 public class BISyncTasklet implements AbstractBISyncTasklet, Tasklet {
 
-    @Autowired
-    SchemaSourceRepository schemaSourceRepository;
+    private final SchemaSourceRepository schemaSourceRepository;
 
-    @Autowired
-    SchemaSourceAuditRepository schemaSourceAuditRepository;
+    private final SchemaSourceAuditRepository schemaSourceAuditRepository;
 
-    @Autowired
-    MetaDataRepository metaDataRepository;
+    private final MetaDataRepository metaDataRepository;
 
-    @Autowired
-    ScheduledOpsRepository scheduledOpsRepository;
+    private final ScheduledOpsRepository scheduledOpsRepository;
 
 
-    SqlOps sqlOps = new SqlServerOps();
+    private final SqlOps sqlOps;
 
-    Renamer renamer = new Renamer();
+    private final Renamer renamer;
 
 
-    @Autowired
-    @Qualifier("JdbcBI")
-    JdbcTemplate jdbcTemplate;
+    private final JdbcTemplate jdbcTemplate;
+
+    public BISyncTasklet(
+            SchemaSourceRepository schemaSourceRepository,
+            SchemaSourceAuditRepository schemaSourceAuditRepository,
+            MetaDataRepository metaDataRepository,
+            ScheduledOpsRepository scheduledOpsRepository,
+            @Qualifier("jdbcBI") JdbcTemplate jdbcTemplate) {
+        this.schemaSourceRepository = schemaSourceRepository;
+        this.schemaSourceAuditRepository = schemaSourceAuditRepository;
+        this.metaDataRepository = metaDataRepository;
+        this.scheduledOpsRepository = scheduledOpsRepository;
+        this.jdbcTemplate = jdbcTemplate;
+        this.sqlOps = new SqlServerOps();
+        this.renamer = new Renamer();
+    }
 
     @Setter
     JSONObject ss;
@@ -86,43 +91,48 @@ public class BISyncTasklet implements AbstractBISyncTasklet, Tasklet {
             log.info("Alimenter du schéma dans la table SchemaSource");
             loadSchemaSource(biTable, this.ss);
 
-//            emailService.sendMailUnableToLoadTable(biTable, String.format("La création du schéma pour la table %s a été achevée. Veuillez paramétrer le schéma et ré-exécuter le job.", biTable));
             stepContribution.setExitStatus(new ExitStatus(NEW_TABLE));
             stepContribution.getStepExecution().getJobExecution().setExitStatus(new ExitStatus(NEW_TABLE));
             return RepeatStatus.FINISHED;
-        } else {
+        }
 
-            List<SchemaSourceAudit> changesList = schemaSourceAuditRepository.findAllBySourceTableName(biTable);
-            if (!changesList.isEmpty()) {
-                for (SchemaSourceAudit change : changesList) {
-                    int diff = change.newSourceEnabled() - change.oldSourceEnabled();
-                    if (diff == 1) {
-                        if (change.dataType().contains(MAX)) {
-                            SchemaSource sch = schemaSourceRepository.findAllByTableNameAndColumnName(change.sourceTableName(), change.ColumnName()).orElseThrow(() -> new RuntimeException("La colonne saisie n'existe pas dans la table sourceSchema!"));
-                            List<MetaDataTable> metaDataTableList = new ArrayList<>();
-                            metaDataTableList.add(new MetaDataTable(biTable, change.ColumnName(), sch.isLocalRef()));
-                            sqlOps.save(jdbcTemplate, metaDataTableList);
-                        }
-                    }
-                    if (diff == -1) {
-                        if (change.dataType().contains(MAX)) {
-                            SchemaSource sch = schemaSourceRepository.findAllByTableNameAndColumnName(change.sourceTableName(), change.ColumnName()).orElseThrow(() -> new RuntimeException("La colonne saisie n'existe pas dans la table sourceSchema!"));
-                            metaDataRepository.delete(new MetaDataTable(biTable, change.ColumnName(), sch.isLocalRef()));
-                        }
-                    }
-                    updateColumn(biTable, diff, change.ColumnName(), change.dataType());
+        processSchemaChanges(biTable);
+        populateExecutionContext(stepContribution, biTable);
+        return RepeatStatus.FINISHED;
+    }
 
-                    int diffIndex = change.newSourceIndexed() - change.oldSourceIndexed();
-                    updateIndex(biTable, diffIndex, change.ColumnName());
-                }
-                schemaSourceAuditRepository.deleteAll(changesList);
+    private void processSchemaChanges(String biTable) {
+        List<SchemaSourceAudit> changesList = schemaSourceAuditRepository.findAllBySourceTableName(biTable);
+        if (changesList.isEmpty()) {
+            return;
+        }
+
+        for (SchemaSourceAudit change : changesList) {
+            int diff = change.newSourceEnabled() - change.oldSourceEnabled();
+            if (diff == 1 && change.dataType().contains(MAX)) {
+                SchemaSource sch = schemaSourceRepository.findAllByTableNameAndColumnName(change.sourceTableName(), change.ColumnName())
+                        .orElseThrow(() -> new RuntimeException("La colonne saisie n'existe pas dans la table sourceSchema!"));
+                List<MetaDataTable> metaDataTableList = new ArrayList<>();
+                metaDataTableList.add(new MetaDataTable(biTable, change.ColumnName(), sch.isLocalRef()));
+                sqlOps.save(jdbcTemplate, metaDataTableList);
+            }
+            if (diff == -1 && change.dataType().contains(MAX)) {
+                SchemaSource sch = schemaSourceRepository.findAllByTableNameAndColumnName(change.sourceTableName(), change.ColumnName())
+                        .orElseThrow(() -> new RuntimeException("La colonne saisie n'existe pas dans la table sourceSchema!"));
+                metaDataRepository.delete(new MetaDataTable(biTable, change.ColumnName(), sch.isLocalRef()));
             }
 
-            stepContribution.getStepExecution().getJobExecution().getExecutionContext().put(BI_STANDARD_SELECTION, ssMapClean(biTable, this.ss).toString());
-            stepContribution.getStepExecution().getJobExecution().getExecutionContext().put("COLUMNS", sqlOps.fieldsToInsert(new HashSet<>(schemaSourceRepository.findSchemaSourceByTableNameAndEnabled(biTable, true))));
-            stepContribution.getStepExecution().getJobExecution().getExecutionContext().put("SQL_QUERY", sqlOps.insertConstruction(biTable, new HashSet<>(schemaSourceRepository.findSchemaSourceByTableNameAndEnabled(biTable, true))));
+            updateColumn(biTable, diff, change.ColumnName(), change.dataType());
+            int diffIndex = change.newSourceIndexed() - change.oldSourceIndexed();
+            updateIndex(biTable, diffIndex, change.ColumnName());
         }
-        return RepeatStatus.FINISHED;
+        schemaSourceAuditRepository.deleteAll(changesList);
+    }
+
+    private void populateExecutionContext(StepContribution stepContribution, String biTable) {
+        stepContribution.getStepExecution().getJobExecution().getExecutionContext().put(BI_STANDARD_SELECTION, ssMapClean(biTable, this.ss).toString());
+        stepContribution.getStepExecution().getJobExecution().getExecutionContext().put("COLUMNS", sqlOps.fieldsToInsert(new HashSet<>(schemaSourceRepository.findSchemaSourceByTableNameAndEnabled(biTable, true))));
+        stepContribution.getStepExecution().getJobExecution().getExecutionContext().put("SQL_QUERY", sqlOps.insertConstruction(biTable, new HashSet<>(schemaSourceRepository.findSchemaSourceByTableNameAndEnabled(biTable, true))));
     }
 
 
@@ -156,17 +166,18 @@ public class BISyncTasklet implements AbstractBISyncTasklet, Tasklet {
 
     @Override
     public void scheduleOp(String tableName) {
-        //TODO
+        //
     }
 
     @Override
     public void updateIndex(String tableName, int diff, String column) {
-        if (diff == 1)
+        if (diff == 1) {
             if (countTable(jdbcTemplate, tableName) > 10000000) {
                 scheduledOpsRepository.save(new ScheduledOps(null, sqlOps.escapeColumn(tableName), sqlOps.escapeColumn(column), "I"));
             } else {
                 sqlOps.createIndex(jdbcTemplate, tableName, column);
             }
+        }
         if (diff == -1) sqlOps.dropIndex(jdbcTemplate, column);
     }
 
@@ -175,10 +186,6 @@ public class BISyncTasklet implements AbstractBISyncTasklet, Tasklet {
         if (diff == 1) {
             sqlOps.addCol(jdbcTemplate, table, column, dataType);
 
-            //TODO
-           /* if (countTable(jdbcTemplate, tableName) > 10000000){
-                scheduledOpsRepository.save(new ScheduledOps(sqlOps.escapeColumn(tableName), sqlOps.escapeColumn(column), 'C'));
-            }*/
         }
         if (diff == -1) sqlOps.dropCol(jdbcTemplate, table, column);
     }
@@ -198,7 +205,12 @@ public class BISyncTasklet implements AbstractBISyncTasklet, Tasklet {
         List<SchemaSource> list = schemaSourceRepository.findAll(tableName);
         JSONObject newSSMap = new JSONObject();
         for (SchemaSource schemaSource : list) {
-            newSSMap.put(schemaSource.getColumnName(), ssMap.get(schemaSource.getColumnName()));
+            String columnName = schemaSource.getColumnName();
+            if (ssMap.has(columnName) && !ssMap.isNull(columnName)) {
+                newSSMap.put(columnName, ssMap.get(columnName));
+            } else {
+                log.warn("Colonne '{}' absente du STANDARD.SELECTION pour la table '{}', ignorée pendant BI_SYNC", columnName, tableName);
+            }
         }
         ssMap.clear();
         return newSSMap;
@@ -208,13 +220,5 @@ public class BISyncTasklet implements AbstractBISyncTasklet, Tasklet {
         return sqlOps.countAll(jdbcTemplate, tableName);
     }
 
-
-    /**
-     * TODO
-     */
-
-    /*public String scheduledQuery(String tableName, String colonneRef, long lastDate){
-        return String.format("SELECT * FROM () WHERE %s < %s", colonneRef, lastDate);
-    }*/
 
 }

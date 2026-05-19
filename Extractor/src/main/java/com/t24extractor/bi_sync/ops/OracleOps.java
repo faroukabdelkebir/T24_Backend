@@ -45,7 +45,7 @@ public class OracleOps extends SqlOps {
     }
 
     @Override
-    public void addCol(JdbcTemplate jdbcTemplate, String table, String column, String DataType) {
+    public void addCol(JdbcTemplate jdbcTemplate, String table, String column, String dataType) {
         throw new UnsupportedOperationException("addCol is not supported in OracleOps");
     }
 

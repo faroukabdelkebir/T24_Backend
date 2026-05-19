@@ -10,12 +10,12 @@ import java.util.HashSet;
 public class XMLFilterProcessor implements ItemProcessor<T24Table, T24Table> 
 {
     @Value("#{jobExecutionContext['IDS']}")
-    HashSet<String> ids_list;
+    HashSet<String> idsList;
 
     @Override
     public T24Table process(T24Table item) throws Exception 
     {
-        if (ids_list.contains(item.getRecid()))
+        if (idsList.contains(item.getRecid()))
         {
             return null;
         } 

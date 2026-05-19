@@ -13,7 +13,7 @@ public class XMLRowMapper implements RowMapper<T24Table>
     	T24Table t24XMLItem = new T24Table();
         
     	t24XMLItem.setRecid(resultSet.getString(1));
-    	t24XMLItem.setXml_record(resultSet.getString(2));
+    	t24XMLItem.setXmlRecord(resultSet.getString(2));
 
         return(t24XMLItem) ;
     }

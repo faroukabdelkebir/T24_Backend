@@ -5,7 +5,6 @@ import java.util.Optional;
 
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.repository.CrudRepository;
-import org.springframework.stereotype.Repository;
 
 public interface TafjVocRepository extends CrudRepository<TafjVoc, String> {
     Optional<TafjVoc> findTafjVocByRecid(String recid);

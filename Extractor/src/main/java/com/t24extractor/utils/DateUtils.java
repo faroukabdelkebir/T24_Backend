@@ -3,6 +3,11 @@ package com.t24extractor.utils;
 import java.util.Date;
 
 public  class DateUtils {
+
+  private DateUtils() {
+    /* This utility class should not be instantiated */
+  }
+
 public static String differenceBetween(Date d1, Date d2) {
 	
 	long diff;

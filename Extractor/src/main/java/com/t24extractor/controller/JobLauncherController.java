@@ -5,6 +5,10 @@ import org.springframework.batch.core.job.Job;
 import org.springframework.batch.core.job.JobExecution;
 import org.springframework.batch.core.job.parameters.JobParameters;
 import org.springframework.batch.core.job.parameters.JobParametersBuilder;
+import org.springframework.batch.core.job.parameters.InvalidJobParametersException;
+import org.springframework.batch.core.launch.JobExecutionAlreadyRunningException;
+import org.springframework.batch.core.launch.JobInstanceAlreadyCompleteException;
+import org.springframework.batch.core.launch.JobRestartException;
 import org.springframework.batch.core.launch.JobOperator;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +20,8 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Comparator;
 import java.util.Set;
 import java.util.UUID;
+
+import static com.t24extractor.commons.Constants.RUN_ID;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -33,10 +39,10 @@ public class JobLauncherController {
     @Autowired
     public JobLauncherController(JobOperator jobOperator, JobRepository jobRepository,
                                  @Qualifier("loadSchema") Job loaderJob,
-                                 @Qualifier("t24") Job mainJob,
+                                 @Qualifier("t24Job") Job mainJob,
                                  @Qualifier("customer") Job cusJob,
-                                 @Qualifier("ft.his") Job ftJob,
-                                 @Qualifier("bill.details") Job billDetailsJob
+                                 @Qualifier("ftHis") Job ftJob,
+                                 @Qualifier("billDetails") Job billDetailsJob
                                  ) {
         this.jobOperator = jobOperator;
         this.jobRepository = jobRepository;
@@ -49,33 +55,54 @@ public class JobLauncherController {
 
     @RequestMapping("/start")
     @CrossOrigin
-    public void handleMain() throws Exception {
+    public void handleMain()  {
 
         JobParameters jobParameters = new JobParametersBuilder()
-                .addString("run.id", UUID.randomUUID().toString())
+                .addString(RUN_ID, UUID.randomUUID().toString())
                 .addLong("time", System.currentTimeMillis())
                 .toJobParameters();
-        jobOperator.start(mainJob, jobParameters);
+        try {
+            jobOperator.start(mainJob, jobParameters);
+        } catch (JobInstanceAlreadyCompleteException
+                 | JobExecutionAlreadyRunningException
+                 | InvalidJobParametersException
+                 | JobRestartException e) {
+            throw new IllegalStateException("Unable to start main job", e);
+        }
     }
 
     @RequestMapping("/customer/start")
     @CrossOrigin
-    public void handleCustomer() throws Exception {
+    public void handleCustomer()  {
         JobParameters jobParameters = new JobParametersBuilder()
-                .addString("run.id", UUID.randomUUID().toString())
+                .addString(RUN_ID, UUID.randomUUID().toString())
                 .addLong("time", System.currentTimeMillis())
                 .toJobParameters();
-        jobOperator.start(cusJob, jobParameters);
+        try {
+            jobOperator.start(cusJob, jobParameters);
+        } catch (JobInstanceAlreadyCompleteException
+                 | JobExecutionAlreadyRunningException
+                 | InvalidJobParametersException
+                 | JobRestartException e) {
+            throw new IllegalStateException("Unable to start customer job", e);
+        }
     }
 
     @RequestMapping("/ft-his/start")
     @CrossOrigin
-    public void handleFt() throws Exception {
+    public void handleFt() {
         JobParameters jobParameters = new JobParametersBuilder()
-                .addString("run.id", UUID.randomUUID().toString())
+                .addString(RUN_ID, UUID.randomUUID().toString())
                 .addLong("time", System.currentTimeMillis())
                 .toJobParameters();
-        jobOperator.start(ftJob, jobParameters);
+        try {
+            jobOperator.start(ftJob, jobParameters);
+        } catch (JobInstanceAlreadyCompleteException
+                 | JobExecutionAlreadyRunningException
+                 | InvalidJobParametersException
+                 | JobRestartException e) {
+            throw new IllegalStateException("Unable to start ft job", e);
+        }
     }
 
     @RequestMapping("/billdetails/start")
@@ -87,7 +114,7 @@ public class JobLauncherController {
         }
 
         JobParameters jobParameters = new JobParametersBuilder()
-                .addString("run.id", UUID.randomUUID().toString())
+                .addString(RUN_ID, UUID.randomUUID().toString())
                 .addLong("time", System.currentTimeMillis())
                 .toJobParameters();
         jobOperator.start(billDetailsJob, jobParameters);
@@ -95,7 +122,7 @@ public class JobLauncherController {
 
     @RequestMapping("/stop")
     @CrossOrigin
-    public void handleStoppingAllJobs() throws Exception {
+    public void handleStoppingAllJobs()  {
         Set<JobExecution> executions = jobRepository.findRunningJobExecutions("T24");
         log.info("Executions: {}", executions);
         executions.stream()
@@ -104,7 +131,7 @@ public class JobLauncherController {
                     try {
                         jobOperator.stop(jobExecution);
                     } catch (Exception e) {
-                        throw new RuntimeException("Failed to stop running execution " + jobExecution.getId(), e);
+                        throw new IllegalArgumentException("Failed to stop running execution " + jobExecution.getId(), e);
                     }
                 });
     }

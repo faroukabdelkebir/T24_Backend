@@ -24,7 +24,10 @@ public class ExecutionFlowDecider implements JobExecutionDecider
 		} else {
 			type = jobExecution.getJobParameters().getString("Type", "");
 		}
+		type = type == null ? "" : type;
+
 		String chargement = jobExecution.getJobParameters().getString("Chargement", "") ;
+		chargement = chargement == null ? "" : chargement;
 
 		if (stepExecution.getJobExecution().getExecutionContext().getInt("COUNT") == 0) {
 			return (new FlowExecutionStatus("EXIT"));
@@ -46,7 +49,7 @@ public class ExecutionFlowDecider implements JobExecutionDecider
 
 		String executionStatus = flowExecutionStatus.toString() ;
 		
-		LOG.trace("[ExecutionFlowDecider] executionStatus = " + executionStatus);		
+		LOG.trace("[ExecutionFlowDecider] executionStatus = {}" , executionStatus);
 		return(new FlowExecutionStatus(flowExecutionStatus.toString()));
 	}
 }

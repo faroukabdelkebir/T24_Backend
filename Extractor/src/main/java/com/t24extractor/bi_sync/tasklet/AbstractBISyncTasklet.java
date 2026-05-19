@@ -5,7 +5,7 @@ import com.t24extractor.model.SchemaSource;
 import org.json.JSONObject;
 
 import java.util.List;
-import java.util.Map;
+
 
 public interface AbstractBISyncTasklet {
 

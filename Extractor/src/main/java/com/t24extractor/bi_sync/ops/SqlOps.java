@@ -19,18 +19,15 @@ public abstract class SqlOps {
 
     public abstract String existsQuery(String table);
 
-    public abstract void createDestTable(JdbcTemplate jdbcTemplate, String table, Set<SchemaSource> set)
-            throws Exception;
+    public abstract void createDestTable(JdbcTemplate jdbcTemplate, String table, Set<SchemaSource> set);
 
-    public abstract void createDefaultDestTable(JdbcTemplate jdbcTemplate, String table) throws Exception;
+    public abstract void createDefaultDestTable(JdbcTemplate jdbcTemplate, String table);
 
-    public abstract String insertConstruction(String table, Set<SchemaSource> set)
-            throws Exception;
+    public abstract String insertConstruction(String table, Set<SchemaSource> set);
 
-    public abstract String mergeConstruction(String table, Set<SchemaSource> set)
-            throws Exception;
+    public abstract String mergeConstruction(String table, Set<SchemaSource> set);
 
-    public abstract void addCol(JdbcTemplate jdbcTemplate, String table, String column, String DataType);
+    public abstract void addCol(JdbcTemplate jdbcTemplate, String table, String column, String dataType);
 
     public abstract void dropCol(JdbcTemplate jdbcTemplate, String table, String col);
 
@@ -95,10 +92,6 @@ public abstract class SqlOps {
         return "VARCHAR(8000)";
     }
 
-    public void deleteFrom(JdbcTemplate jdbcTemplate, String tableName, String columnName, Object var) {
-        String deleteQuery = String.join(" ", "DELETE FROM", escapeTableName(tableName), " WHERE", escapeColumn(columnName), "= N'" + var + "'");
-        var updCnt = jdbcTemplate.batchUpdate(deleteQuery);
-    }
 
 
     public abstract boolean existIndexQuery(JdbcTemplate jdbcTemplate, String tableName, String column);
@@ -175,25 +168,6 @@ public abstract class SqlOps {
                     "         END", meta.tablename(), meta.multivalueFields(), meta.localref()));
         }
 
-//        jdbcTemplate.batchUpdate("INSERT INTO T24_Metadata (Table_Name, MultiValueFields, LOCAL_REF) VALUES(?,?,?)",
-//                new BatchPreparedStatementSetter() {
-//
-//                    @Override
-//                    public void setValues(PreparedStatement ps, int i)
-//                            throws SQLException {
-//
-//                        MetaDataTable metaDataTable = metaDataTableList.get(i);
-//                        ps.setString(1, metaDataTable.tablename());
-//                        ps.setString(2, metaDataTable.multivalueFields());
-//                        ps.setBoolean(3, metaDataTable.localref());
-//
-//                    }
-//
-//                    @Override
-//                    public int getBatchSize() {
-//                        return metaDataTableList.size();
-//                    }
-//                });
 
 
     }

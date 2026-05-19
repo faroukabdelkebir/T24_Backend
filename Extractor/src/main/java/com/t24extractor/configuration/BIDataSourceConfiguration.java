@@ -14,11 +14,9 @@ import org.springframework.data.jdbc.core.convert.JdbcConverter;
 import org.springframework.data.jdbc.core.convert.JdbcCustomConversions;
 import org.springframework.data.jdbc.core.convert.MappingJdbcConverter;
 import org.springframework.data.jdbc.core.convert.RelationResolver;
-import org.springframework.data.jdbc.core.mapping.JdbcMappingContext;
 import org.springframework.data.jdbc.repository.config.EnableJdbcRepositories;
 import org.springframework.data.relational.core.dialect.Dialect;
 import org.springframework.data.relational.core.mapping.DefaultNamingStrategy;
-import org.springframework.data.relational.core.mapping.NamingStrategy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcOperations;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -34,7 +32,7 @@ import org.springframework.data.relational.core.mapping.RelationalMappingContext
 
 import javax.sql.DataSource;
 import java.util.Objects;
-import java.util.Optional;
+
 
 @Configuration
 @EnableJdbcRepositories(
@@ -46,13 +44,14 @@ import java.util.Optional;
 public class BIDataSourceConfiguration {
 
     @Bean
+    @Primary
     @ConfigurationProperties("spring.datasource.bi")
     public DataSourceProperties biDataSourceProperties() {
         return new DataSourceProperties();
     }
 
-    @Bean
-    @Qualifier("bi")
+    @Bean(name = "bi")
+    @Primary
     public DataSource biDataSource() {
         HikariDataSource ds = new HikariDataSource();
         ds.setJdbcUrl(Objects.requireNonNull(biDataSourceProperties().getUrl()));
@@ -65,49 +64,45 @@ public class BIDataSourceConfiguration {
     }
 
 
-    @Bean("JdbcBI")
+    @Bean("jdbcBI")
+    @Primary
     public JdbcTemplate jdbcSqlServer(@Qualifier("bi") DataSource ds) {
         return new JdbcTemplate(ds);
     }
 
-//    @Bean
-//    @Primary
-//    public DataSourceInitializer dataSourceInitializer2() {
-//        ResourceDatabasePopulator resourceDatabasePopulator = new ResourceDatabasePopulator();
-//        resourceDatabasePopulator.addScripts(new ClassPathResource("/schemas/mssql-schema.sql"));
-//        resourceDatabasePopulator.setSeparator("GO");
-//        DataSourceInitializer dataSourceInitializer = new DataSourceInitializer();
-//        dataSourceInitializer.setDataSource(dataSource());
-//        dataSourceInitializer.setDatabasePopulator(resourceDatabasePopulator);
-//        return dataSourceInitializer;
-//    }
 
     @Bean(name = "biJdbcOperations")
+    @Primary
     NamedParameterJdbcOperations biJdbcOperations(@Qualifier("bi") DataSource dataSource) {
         return new NamedParameterJdbcTemplate(dataSource);
     }
 
     @Bean(name = "biTransactionManager")
+    @Primary
     public PlatformTransactionManager biTransactionManager(@Qualifier("bi") DataSource ds) {
         return new DataSourceTransactionManager(ds);
     }
 
     @Bean(name = "biDialect")
+    @Primary
     public Dialect biDialect() {
         return JdbcSqlServerDialect.INSTANCE;
     }
 
     @Bean(name = "biJdbcCustomConversions")
+    @Primary
     public JdbcCustomConversions biJdbcCustomConversions() {
         return new JdbcCustomConversions();
     }
 
     @Bean(name = "biMappingContext")
+    @Primary
     public RelationalMappingContext biMappingContext() {
         return new org.springframework.data.jdbc.core.mapping.JdbcMappingContext(DefaultNamingStrategy.INSTANCE);
     }
 
     @Bean(name = "biJdbcConverter")
+    @Primary
     public JdbcConverter biJdbcConverter(
             @Qualifier("biMappingContext") RelationalMappingContext context,
             @Qualifier("biJdbcOperations") NamedParameterJdbcOperations ops,
@@ -118,6 +113,7 @@ public class BIDataSourceConfiguration {
     }
 
     @Bean(name = "biDataAccessStrategy")
+    @Primary
     public DataAccessStrategy biDataAccessStrategy(
             @Qualifier("biMappingContext") RelationalMappingContext context,
             @Qualifier("biJdbcConverter") JdbcConverter converter,
@@ -137,6 +133,7 @@ public class BIDataSourceConfiguration {
     }
 
     @Bean(name = "biJdbcAggregateOperations")
+    @Primary
     public JdbcAggregateOperations biJdbcAggregateOperations(
             ApplicationContext applicationContext,
             @Qualifier("biMappingContext") RelationalMappingContext context,
@@ -146,40 +143,4 @@ public class BIDataSourceConfiguration {
         return new JdbcAggregateTemplate(applicationContext, context, converter, dataAccessStrategy);
     }
 
-//    @Bean
-//    @Primary
-//    Dialect mssqlJdbcDialect() {
-//        return JdbcSqlServerDialect.INSTANCE;
-//    }
-//
-//
-//    @Bean
-//    @Primary
-//    JdbcCustomConversions customConversions() {
-//        return new JdbcCustomConversions();
-//    }
-//
-//    @Bean
-//    @Primary
-//    JdbcMappingContext jdbcMappingContext(Optional<NamingStrategy> namingStrategy, JdbcCustomConversions customConversions) {
-//        JdbcMappingContext mappingContext = new JdbcMappingContext(namingStrategy.orElse(DefaultNamingStrategy.INSTANCE));
-//        mappingContext.setSimpleTypeHolder(customConversions.getSimpleTypeHolder());
-//        return mappingContext;
-//    }
-//
-//    @Bean
-//    @Primary
-//    JdbcConverter jdbcConverter(JdbcMappingContext mappingContext,
-//                                @Qualifier("biJdbcOperations") NamedParameterJdbcOperations jdbcOperationsDataBase1,
-//                                @Lazy RelationResolver relationResolver,
-//                                JdbcCustomConversions conversions) {
-//
-//        DefaultJdbcTypeFactory jdbcTypeFactory = new DefaultJdbcTypeFactory(jdbcOperationsDataBase1.getJdbcOperations());
-//        return new MappingJdbcConverter(mappingContext, relationResolver, conversions, jdbcTypeFactory);
-//    }
-
-//    @Bean
-//    public IntegrationDataSourceScriptDatabaseInitializer customIntegrationDataSourceInitializer(@Qualifier("bi") DataSource dataSource) {
-//        return new IntegrationDataSourceScriptDatabaseInitializer(dataSource, new DatabaseInitializationSettings());
-//    }
 }
