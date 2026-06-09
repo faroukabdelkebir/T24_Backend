@@ -47,8 +47,22 @@ CREATE TABLE BATCH_CONFIG
     chargement       varchar(100),
     last_date        bigint,
     min_date         bigint,
-    enabled         bit default 1
+    enabled          bit default 1,
+    scheduler        bit default 0,
+    scheduler_time   varchar(8) null
 );
+GO
+
+IF COL_LENGTH('dbo.BATCH_CONFIG', 'scheduler') IS NULL
+BEGIN
+    ALTER TABLE dbo.BATCH_CONFIG ADD scheduler bit NOT NULL CONSTRAINT DF_BATCH_CONFIG_scheduler DEFAULT 0;
+END
+GO
+
+IF COL_LENGTH('dbo.BATCH_CONFIG', 'scheduler_time') IS NULL
+BEGIN
+    ALTER TABLE dbo.BATCH_CONFIG ADD scheduler_time varchar(8) NULL;
+END
 GO
 
 -- CREATE Table scheduled_ops
@@ -180,9 +194,9 @@ BEGIN
                    WHERE id = N'AA.BILL.DETAILS'
                    )
 BEGIN
-INSERT INTO dbo.BATCH_CONFIG (id, TableName, T24SelectionName, colonne_ref, chargement, last_date, min_date, enabled)
+INSERT INTO dbo.BATCH_CONFIG (id, TableName, T24SelectionName, colonne_ref, chargement, last_date, min_date, enabled, scheduler, scheduler_time)
 VALUES
-    (N'AA.BILL.DETAILS', N'FBNK_AA_BILL_DETAILS', N'AA.BILL.DETAILS', N'PAYMENT_DATE', N'Incremental', 0, null, 1)
+    (N'AA.BILL.DETAILS', N'FBNK_AA_BILL_DETAILS', N'AA.BILL.DETAILS', N'PAYMENT_DATE', N'Incremental', 0, null, 1, 0, null)
 END
 END
 GO
@@ -192,8 +206,8 @@ BEGIN
                    WHERE id = N'CUSTOMER'
                    )
 BEGIN
-INSERT INTO dbo.BATCH_CONFIG (id, TableName, T24SelectionName, colonne_ref, chargement, last_date, min_date, enabled)
-VALUES (N'CUSTOMER', N'FBNK_CUSTOMER', N'CUSTOMER', null, N'Full', null, null, 1)
+INSERT INTO dbo.BATCH_CONFIG (id, TableName, T24SelectionName, colonne_ref, chargement, last_date, min_date, enabled, scheduler, scheduler_time)
+VALUES (N'CUSTOMER', N'FBNK_CUSTOMER', N'CUSTOMER', null, N'Full', null, null, 1, 0, null)
 END
 END
 GO
@@ -203,8 +217,8 @@ BEGIN
                    WHERE id = N'FUNDS.TRANSFER$HIS'
                    )
 BEGIN
-INSERT INTO dbo.BATCH_CONFIG (id, TableName, T24SelectionName, colonne_ref, chargement, last_date, min_date, enabled)
-VALUES (N'FUNDS.TRANSFER$HIS', N'FBNK_FUNDS_TRANSFER001', N'FUNDS.TRANSFER$HIS', N'DEBIT_VALUE_DATE', N'Incremental', 0, null, 1)
+INSERT INTO dbo.BATCH_CONFIG (id, TableName, T24SelectionName, colonne_ref, chargement, last_date, min_date, enabled, scheduler, scheduler_time)
+VALUES (N'FUNDS.TRANSFER$HIS', N'FBNK_FUNDS_TRANSFER001', N'FUNDS.TRANSFER$HIS', N'DEBIT_VALUE_DATE', N'Incremental', 0, null, 1, 0, null)
 END
 END
 GO

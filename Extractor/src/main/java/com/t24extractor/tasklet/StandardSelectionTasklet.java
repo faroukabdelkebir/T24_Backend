@@ -7,9 +7,7 @@ import nu.xom.Attribute;
 import nu.xom.Builder;
 import nu.xom.Element;
 import nu.xom.ParsingException;
-import nu.xom.ValidityException;
 import org.json.JSONObject;
-import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.StepContribution;
 import org.springframework.batch.core.step.tasklet.Tasklet;
@@ -143,8 +141,8 @@ public class StandardSelectionTasklet implements Tasklet {
                 child.addAttribute(new Attribute("m", "1"));
             }
             applyChildMapping(context, child);
-            enrichMappedData(context);
         }
+        enrichMappedData(context);
         return context;
     }
 
