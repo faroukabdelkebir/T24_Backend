@@ -43,8 +43,9 @@ public class TableNameTasklet implements Tasklet {
             Ex: Classification= FBNK. + t24Name= ACCOUNT ==> FBNK.ACCOUNT
          */
 
-        log.debug("Le retour de Service Classification est {}", String.join(".", fileControlService.classification(this.t24TableName), this.t24TableName));
-        String t24SelectionName = String.join(".", fileControlService.classification(this.t24TableName), this.t24TableName);
+        String classification = fileControlService.classification(this.t24TableName);
+        log.debug("Le retour de Service Classification est {}", String.join(".", classification, this.t24TableName));
+        String t24SelectionName = String.join(".", classification, this.t24TableName);
 
 
         /*

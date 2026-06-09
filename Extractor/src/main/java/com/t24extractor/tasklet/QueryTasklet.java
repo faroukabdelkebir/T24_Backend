@@ -103,12 +103,12 @@ public class QueryTasklet implements Tasklet {
                 return "";
             }
             return isVarcharDate()
-                    ? WHERE_CLAUSE + columnRef + " > " + "'" + lastDate + "'"
-                    : WHERE_CLAUSE + columnRef + " > " + lastDate;
+                    ? WHERE_CLAUSE + " " + columnRef + " > " + "'" + lastDate + "'"
+                    : WHERE_CLAUSE + " " + columnRef + " > " + lastDate;
         }
         return isVarcharDate()
-                ? WHERE_CLAUSE + columnRef + " > '" + lastDate + "'" + " AND " + columnRef + " <= '" + futureDate + "'"
-                : WHERE_CLAUSE + columnRef + " > " + lastDate + " AND " + columnRef + " <= " + futureDate;
+                ? WHERE_CLAUSE + " " + columnRef + " > '" + lastDate + "'" + " AND " + columnRef + " <= '" + futureDate + "'"
+                : WHERE_CLAUSE + " " + columnRef + " > " + lastDate + " AND " + columnRef + " <= " + futureDate;
     }
 
     private String incrementalSpecificCondition() {
