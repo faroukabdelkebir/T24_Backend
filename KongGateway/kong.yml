@@ -1,0 +1,42 @@
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: userms
+    url: http://host.docker.internal:8085
+    routes:
+      - name: userms-route
+        paths: [/userms]
+        strip_path: true
+
+  - name: authms
+    url: http://host.docker.internal:8090
+    routes:
+      - name: authms-route
+        paths: [/authms]
+        strip_path: true
+
+  - name: extractor
+    url: http://host.docker.internal:65005
+    routes:
+      - name: extractor-route
+        paths: [/extractor]
+        strip_path: true
+
+  - name: monitoring
+    url: http://host.docker.internal:65010
+    routes:
+      - name: monitoring-route
+        paths: [/monitoring]
+        strip_path: true
+
+plugins:
+  - name: cors
+    config:
+      origins:
+        - http://localhost:4200
+      methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+      headers: [Accept, Authorization, Content-Type, Origin, X-Requested-With]
+      exposed_headers: [Authorization]
+      credentials: true
+      max_age: 3600
