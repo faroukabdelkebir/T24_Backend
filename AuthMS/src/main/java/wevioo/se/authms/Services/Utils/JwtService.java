@@ -10,6 +10,7 @@ import wevioo.se.authms.UserMS.UserPrincipal;
 
 import javax.crypto.SecretKey;
 import java.util.Date;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
@@ -33,7 +34,8 @@ public class JwtService {
         return buildToken(Map.of(
                 "userId", user.getUserId().toString(),
                 "email", user.getEmail(),
-                "role", user.getRole()
+                "role", user.getRole(),
+                "roles", List.of(user.getRole())
         ), user.getUsername(), props.getJwt().getAccessTokenExpirationMs());
     }
 
@@ -41,7 +43,8 @@ public class JwtService {
         return buildToken(Map.of(
                 "userId", userId.toString(),
                 "email", email,
-                "role", role
+                "role", role,
+                "roles", List.of(role)
         ), username, props.getJwt().getAccessTokenExpirationMs());
     }
 

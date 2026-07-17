@@ -130,7 +130,7 @@ public class AuthController {
         Page<AuthAuditLog> logs;
 
         if (username != null && eventType != null) {
-            logs = auditLogRepo.findByUsername(username, pageable);
+            logs = auditLogRepo.findByUsernameAndEventType(username, eventType, pageable);
         } else if (username != null) {
             logs = auditLogRepo.findByUsername(username, pageable);
         } else if (eventType != null) {

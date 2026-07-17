@@ -1,9 +1,13 @@
 package wevioo.se.authms.Security;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.ResourceLoader;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -40,6 +44,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.util.matcher.MediaTypeRequestMatcher;
+import org.springframework.util.StringUtils;
 import wevioo.se.authms.Config.AppProperties;
 import wevioo.se.authms.Security.JwtAuthenticationFilter;
 
@@ -49,14 +54,16 @@ import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
 
+import java.io.InputStream;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.KeyStore;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
 import java.time.Duration;
 import java.util.UUID;
 
-
+@Slf4j
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
@@ -64,13 +71,33 @@ import java.util.UUID;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final ResourceLoader resourceLoader;
+
+
+    @Value("${app.oauth2.clients.etl.secret}")
+    private String etlClientSecret;
+
+    @Value("${app.oauth2.clients.bff.secret}")
+    private String bffClientSecret;
+
+    @Value("${app.oauth2.clients.auth.secret}")
+    private String authServiceClientSecret;
+
+    @Value("${app.oauth2.jwk.keystore-path:}")
+    private String jwkKeystorePath;
+
+    @Value("${app.oauth2.jwk.keystore-password:}")
+    private String jwkKeystorePassword;
+
+    @Value("${app.oauth2.jwk.key-alias:}")
+    private String jwkKeyAlias;
 
 
     @Bean
     @Order(1)
     public SecurityFilterChain apiFilterChain(HttpSecurity http) throws Exception {
         http
-                .securityMatcher("/api/**", "/actuator/**")
+                .securityMatcher("/api/**", "/bff/**", "/actuator/**")
                 .csrf(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
@@ -84,6 +111,15 @@ public class SecurityConfig {
                                 "/api/v1/auth/reset-password"
                         ).permitAll()
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+
+                        .requestMatchers("/bff/users/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST,
+                                "/bff/ai/api/m1/audit/**",
+                                "/bff/ai/api/m1/audit-all/**",
+                                "/bff/ai/api/m3/scheduler/recommend/**").hasAnyRole("ADMIN", "MONITOR")
+                        .requestMatchers("/bff/ai/**").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/bff/batch/schema-source/**").hasAnyRole("ADMIN", "MONITOR")
+                        .requestMatchers("/bff/batch/**").hasRole("ADMIN")
 
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/auth/logout",
@@ -127,12 +163,14 @@ public class SecurityConfig {
     @Bean
     public RegisteredClientRepository registeredClientRepository(
             JdbcTemplate jdbcTemplate,
-            TokenSettings defaultTokenSettings) {
+            TokenSettings defaultTokenSettings,
+            PasswordEncoder passwordEncoder) {
 
         JdbcRegisteredClientRepository repo = new JdbcRegisteredClientRepository(jdbcTemplate);
 
-        seedIfAbsent(repo, buildEtlClient(defaultTokenSettings));
-        seedIfAbsent(repo, buildFrontendBffClient(defaultTokenSettings));
+        seedIfAbsent(repo, buildEtlClient(defaultTokenSettings, passwordEncoder));
+        seedIfAbsent(repo, buildFrontendBffClient(defaultTokenSettings, passwordEncoder));
+        seedIfAbsent(repo, buildAuthServiceClient(defaultTokenSettings, passwordEncoder));
 
         return repo;
     }
@@ -162,16 +200,47 @@ public class SecurityConfig {
 
     @Bean
     public JWKSource<SecurityContext> jwkSource() {
+        RSAKey rsaKey = StringUtils.hasText(jwkKeystorePath)
+                ? loadRsaKeyFromKeystore()
+                : generateEphemeralRsaKey();
+        return new ImmutableJWKSet<>(new JWKSet(rsaKey));
+    }
+
+    private RSAKey loadRsaKeyFromKeystore() {
+        try {
+            Resource resource = resourceLoader.getResource(jwkKeystorePath);
+            KeyStore keyStore = KeyStore.getInstance("PKCS12");
+            char[] password = jwkKeystorePassword.toCharArray();
+            try (InputStream is = resource.getInputStream()) {
+                keyStore.load(is, password);
+            }
+            RSAPrivateKey privateKey = (RSAPrivateKey) keyStore.getKey(jwkKeyAlias, password);
+            RSAPublicKey publicKey =
+                    (RSAPublicKey) keyStore.getCertificate(jwkKeyAlias).getPublicKey();
+
+            log.info("Loaded RSA signing key from keystore (alias={})", jwkKeyAlias);
+            return new RSAKey.Builder(publicKey)
+                    .privateKey(privateKey)
+                    .keyID(jwkKeyAlias)
+                    .build();
+        } catch (Exception ex) {
+            throw new IllegalStateException(
+                    "Failed to load RSA key from keystore at " + jwkKeystorePath, ex);
+        }
+    }
+
+    private RSAKey generateEphemeralRsaKey() {
+        log.warn("No JWK keystore configured (app.oauth2.jwk.keystore-path is empty). "
+                + "Generating an EPHEMERAL RSA key: issued tokens will NOT survive a restart "
+                + "and are invalid across instances. Configure a keystore before production.");
         KeyPair keyPair = generateRsaKeyPair();
         RSAPublicKey  publicKey  = (RSAPublicKey)  keyPair.getPublic();
         RSAPrivateKey privateKey = (RSAPrivateKey) keyPair.getPrivate();
 
-        RSAKey rsaKey = new RSAKey.Builder(publicKey)
+        return new RSAKey.Builder(publicKey)
                 .privateKey(privateKey)
                 .keyID(UUID.randomUUID().toString())
                 .build();
-
-        return new ImmutableJWKSet<>(new JWKSet(rsaKey));
     }
 
     @Bean
@@ -194,35 +263,57 @@ public class SecurityConfig {
     @Bean
     public PasswordEncoder passwordEncoder() {
         return PasswordEncoderFactories.createDelegatingPasswordEncoder();
-       // return NoOpPasswordEncoder.getInstance();
-      // return new BCryptPasswordEncoder(12);
     }
 
 
-    private RegisteredClient buildEtlClient(TokenSettings ts) {
+    private RegisteredClient buildEtlClient(TokenSettings ts, PasswordEncoder passwordEncoder) {
         return RegisteredClient.withId(UUID.randomUUID().toString())
                 .clientId("etl-service")
-                .clientSecret("etl-secret-change-in-prod")
+                .clientSecret(passwordEncoder.encode(etlClientSecret))
+                .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
+                .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
+                .scope("user:read")
+                .scope("user:write")
+                .scope("monitoring:read")
+                .tokenSettings(ts)
+                .clientSettings(ClientSettings.builder().requireAuthorizationConsent(false).build())
+                .build();
+    }
+
+    private RegisteredClient buildFrontendBffClient(TokenSettings ts, PasswordEncoder passwordEncoder) {
+        return RegisteredClient.withId(UUID.randomUUID().toString())
+                .clientId("frontend-bff")
+                .clientSecret(passwordEncoder.encode(bffClientSecret))
                 .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
                 .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
                 .scope("user:read")
                 .scope("user:write")
                 .scope("monitoring:read")
                 .scope("batch:execute")
+                .scope("ai:read")
+                .scope("ai:execute")
                 .tokenSettings(ts)
                 .clientSettings(ClientSettings.builder().requireAuthorizationConsent(false).build())
                 .build();
     }
 
-    private RegisteredClient buildFrontendBffClient(TokenSettings ts) {
+    /**
+     * AuthMS lui-même est enregistré comme client OAuth2 (flow client_credentials)
+     * pour ses appels service-à-service vers UserMS. Les scopes user:credentials:*
+     * sont réservés à ce client : ni l'ETL ni le BFF ne peuvent lire des hashes
+     * de mots de passe.
+     */
+    private RegisteredClient buildAuthServiceClient(TokenSettings ts, PasswordEncoder passwordEncoder) {
         return RegisteredClient.withId(UUID.randomUUID().toString())
-                .clientId("frontend-bff")
-                .clientSecret("bff-secret-change-in-prod")
+                .clientId("auth-service")
+                .clientSecret(passwordEncoder.encode(authServiceClientSecret))
                 .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
                 .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
-                .scope("user:read")
-                .scope("monitoring:read")
-                .tokenSettings(ts)
+                .scope("user:credentials:read")
+                .scope("user:credentials:write")
+                .tokenSettings(TokenSettings.builder()
+                        .accessTokenTimeToLive(Duration.ofMinutes(15))
+                        .build())
                 .clientSettings(ClientSettings.builder().requireAuthorizationConsent(false).build())
                 .build();
     }

@@ -19,6 +19,9 @@ public interface AuthAuditLogRepository extends JpaRepository<AuthAuditLog, UUID
 
     Page<AuthAuditLog> findByEventType(AuthEventType eventType, Pageable pageable);
 
+    Page<AuthAuditLog> findByUsernameAndEventType(String username, AuthEventType eventType, Pageable pageable);
+
+
     @Query("""
         SELECT COUNT(a) FROM AuthAuditLog a
         WHERE a.username  = :username
