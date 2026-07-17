@@ -1,10 +1,13 @@
 from django.urls import path, include
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from core.ollama_client import OllamaClient
 import settings
 
 @api_view(["GET"])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def health(request):
     from django.conf import settings
     from core.ollama_client import OllamaClient
@@ -23,8 +26,12 @@ def health(request):
         }
     })
 
+from reports_views import ReportListView, ReportDetailView
+
 urlpatterns = [
     path("", health),
     path("api/m1/", include("agent_anomaly_quality.urls")),
     path("api/m3/", include("agent_scheduler.urls")),
+    path("api/reports/", ReportListView.as_view()),
+    path("api/reports/<int:report_id>/", ReportDetailView.as_view()),
 ]

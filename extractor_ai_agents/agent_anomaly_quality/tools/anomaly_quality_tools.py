@@ -22,14 +22,20 @@ def get_connection():
     )
 
 
-ALLOWED_TABLES = {"CUSTOMER", "AA_BILL_DETAILS", "FUNDS_TRANSFER_HIS",
+# Noms physiques réels des tables en base (T24 : le nom garde le '#',
+# ex. FUNDS_TRANSFER#HIS). Ces noms sont réinjectés tels quels dans le SQL,
+# encadrés par des crochets à cause du '#'.
+ALLOWED_TABLES = {"CUSTOMER", "AA_BILL_DETAILS", "FUNDS_TRANSFER#HIS",
                   "BATCH_JOB_EXECUTION", "BATCH_STEP_EXECUTION",
                   "BATCH_CONFIG", "SCHEMA_SOURCE", "stats"}
 
 def _validate(t):
-    clean = t.strip().upper()
+    # Les appelants passent tantôt la variante '#' (FUNDS_TRANSFER#HIS, depuis le
+    # schéma), tantôt la variante '_' (FUNDS_TRANSFER_HIS, en dur dans audit_all).
+    # On accepte les deux et on renvoie TOUJOURS le nom physique de la liste blanche.
+    clean = t.strip().upper().replace("#", "_")
     for allowed in ALLOWED_TABLES:
-        if allowed.upper() == clean: return allowed
+        if allowed.upper().replace("#", "_") == clean: return allowed
     raise ValueError(f"Table non autorisée: {t}")
 
 
@@ -45,7 +51,7 @@ def measure_completeness(table_name: str) -> dict:
     conn = get_connection()
     try:
         cur = conn.cursor()
-        cur.execute(f"SELECT COUNT(*) FROM {table}")
+        cur.execute(f"SELECT COUNT(*) FROM [{table}]")
         total = cur.fetchone()[0]
         cur.execute(f"SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=? ORDER BY ORDINAL_POSITION", table)
         cols = [r[0] for r in cur.fetchall()]
@@ -53,7 +59,7 @@ def measure_completeness(table_name: str) -> dict:
         full_null, full_filled, partial = [], [], []
         total_nulls = 0
         for c in cols:
-            cur.execute(f"SELECT SUM(CASE WHEN [{c}] IS NULL THEN 1 ELSE 0 END) FROM {table}")
+            cur.execute(f"SELECT SUM(CASE WHEN [{c}] IS NULL THEN 1 ELSE 0 END) FROM [{table}]")
             n = cur.fetchone()[0] or 0
             total_nulls += n
             pct = round(n / total * 100, 1) if total else 0
@@ -82,11 +88,11 @@ def measure_uniqueness(table_name: str, key_column: str = "_id") -> dict:
     conn = get_connection()
     try:
         cur = conn.cursor()
-        cur.execute(f"SELECT COUNT(*) FROM {table}")
+        cur.execute(f"SELECT COUNT(*) FROM [{table}]")
         total = cur.fetchone()[0]
-        cur.execute(f"SELECT COUNT(DISTINCT [{key_column}]) FROM {table}")
+        cur.execute(f"SELECT COUNT(DISTINCT [{key_column}]) FROM [{table}]")
         unique = cur.fetchone()[0]
-        cur.execute(f"SELECT TOP 10 [{key_column}], COUNT(*) c FROM {table} GROUP BY [{key_column}] HAVING COUNT(*)>1 ORDER BY c DESC")
+        cur.execute(f"SELECT TOP 10 [{key_column}], COUNT(*) c FROM [{table}] GROUP BY [{key_column}] HAVING COUNT(*)>1 ORDER BY c DESC")
         dups = [{"key": str(r[0]), "count": r[1]} for r in cur.fetchall()]
 
         score = round(unique / total * 100, 1) if total else 100
@@ -161,7 +167,7 @@ def measure_conformity(table_name: str) -> dict:
                 continue
             cur.execute(
                 f"SELECT SUM(CASE WHEN [{col}] IS NOT NULL AND {fn}([{col}])=0 THEN 1 ELSE 0 END), "
-                f"       SUM(CASE WHEN [{col}] IS NOT NULL THEN 1 ELSE 0 END) FROM {table}")
+                f"       SUM(CASE WHEN [{col}] IS NOT NULL THEN 1 ELSE 0 END) FROM [{table}]")
             row = cur.fetchone()
             violations, non_null = (row[0] or 0), (row[1] or 0)
             if non_null > 0:
@@ -229,18 +235,18 @@ def measure_consistency(table_name: str) -> dict:
     conn = get_connection()
     try:
         cur = conn.cursor()
-        cur.execute(f"SELECT COUNT(*) FROM {table}")
+        cur.execute(f"SELECT COUNT(*) FROM [{table}]")
         total = cur.fetchone()[0]
         cur.execute(f"SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=? AND DATA_TYPE LIKE '%char%'", table)
         text_cols = [r[0] for r in cur.fetchall()]
 
         issues = []
         for col in text_cols:
-            cur.execute(f"SELECT COUNT(*) FROM {table} WHERE [{col}]='ULL'")
+            cur.execute(f"SELECT COUNT(*) FROM [{table}] WHERE [{col}]='ULL'")
             c = cur.fetchone()[0]
             if c > 0:
                 issues.append({"type": "PARSING_BUG", "column": col, "value": "ULL", "count": c, "severity": "HIGH"})
-            cur.execute(f"SELECT COUNT(*) FROM {table} WHERE [{col}]='' OR [{col}]=' '")
+            cur.execute(f"SELECT COUNT(*) FROM [{table}] WHERE [{col}]='' OR [{col}]=' '")
             c2 = cur.fetchone()[0]
             if c2 > 0:
                 issues.append({"type": "EMPTY_STRING", "column": col, "count": c2, "severity": "MEDIUM"})
@@ -359,7 +365,7 @@ def cross_validate(table_name: str, column_a: str, column_b: str) -> dict:
         cur = conn.cursor()
         cur.execute(f"""
             SELECT [{column_a}], [{column_b}], COUNT(*) c
-            FROM {table} WHERE [{column_a}] IS NOT NULL AND [{column_b}] IS NOT NULL
+            FROM [{table}] WHERE [{column_a}] IS NOT NULL AND [{column_b}] IS NOT NULL
             GROUP BY [{column_a}], [{column_b}] ORDER BY COUNT(*) DESC
         """)
         combos = [{"col_a": str(r[0]), "col_b": str(r[1]), "count": r[2]} for r in cur.fetchall()]
@@ -394,11 +400,11 @@ def check_business_rules(table_name: str, rules: list[dict]) -> dict:
             forbidden = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "EXEC", "--", ";"]
             if any(kw.upper() in cond.upper() for kw in forbidden):
                 results.append({"rule": name, "error": "SQL interdit"}); continue
-            cur.execute(f"SELECT COUNT(*) FROM {table} WHERE {cond}")
+            cur.execute(f"SELECT COUNT(*) FROM [{table}] WHERE {cond}")
             violations = cur.fetchone()[0]
             examples = []
             if violations > 0:
-                cur.execute(f"SELECT TOP 5 _id FROM {table} WHERE {cond}")
+                cur.execute(f"SELECT TOP 5 _id FROM [{table}] WHERE {cond}")
                 examples = [str(r[0]) for r in cur.fetchall()]
             results.append({"rule": name, "violations": violations, "examples": examples})
         return {"table": table, "results": results}
@@ -429,13 +435,13 @@ def get_column_stats(table_name: str, column_name: str) -> dict:
                    SUM(CASE WHEN [{column_name}] IS NULL THEN 1 ELSE 0 END) as nulls,
                    COUNT(DISTINCT [{column_name}]) as distinct_count,
                    MIN([{column_name}]) as mn, MAX([{column_name}]) as mx
-            FROM {table}
+            FROM [{table}]
         """)
         r = cur.fetchone()
         stats = {"column": column_name, "total": r[0], "nulls": r[1],
                  "null_pct": round(r[1]/r[0]*100, 1) if r[0] else 0,
                  "distinct": r[2], "min": str(r[3]) if r[3] else None, "max": str(r[4]) if r[4] else None}
-        cur.execute(f"SELECT TOP 10 [{column_name}], COUNT(*) c FROM {table} WHERE [{column_name}] IS NOT NULL GROUP BY [{column_name}] ORDER BY c DESC")
+        cur.execute(f"SELECT TOP 10 [{column_name}], COUNT(*) c FROM [{table}] WHERE [{column_name}] IS NOT NULL GROUP BY [{column_name}] ORDER BY c DESC")
         stats["top_values"] = [{"value": str(r[0]), "count": r[1]} for r in cur.fetchall()]
         return stats
     finally: conn.close()
