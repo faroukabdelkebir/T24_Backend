@@ -33,8 +33,13 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 public class AlertService {
 
-    private static final String SEVERITY_CRITICAL = "Critique";
-    private static final String SEVERITY_WARNING = "Avertissement";
+    // Codes de sévérité (la traduction se fait côté client).
+    private static final String SEVERITY_CRITICAL = "CRITICAL";
+    private static final String SEVERITY_WARNING  = "WARNING";
+    private static final String SEVERITY_INFO     = "INFO";
+
+    /** Statut métier (FR) renvoyé par ReconciliationService pour le cas « avertissement ». */
+    private static final String RECON_STATUS_WARNING = "Avertissement";
 
     private final BatchExecutionRepository batchRepo;
     private final ReconciliationService     reconciliationService;
@@ -86,10 +91,12 @@ public class AlertService {
             if (consecutive >= consecutiveFailureThreshold) {
                 String key = "CONSECUTIVE_FAILURE_" + jobName;
                 activeAlertsMap.put(key, AlertDto.builder()
-                        .type("Échecs consécutifs")
+                        .alertKey(key)
+                        .typeKey("alerts.kind.consecutiveFailure")
                         .severity(SEVERITY_CRITICAL)
                         .jobName(jobName)
-                        .message(consecutive + " échecs consécutifs détectés sur " + jobName)
+                        .messageKey("alerts.msg.consecutiveFailure")
+                        .params(Map.of("count", consecutive, "job", jobName))
                         .triggeredAt(LocalDateTime.now())
                         .resolved(false)
                         .build());
@@ -98,10 +105,12 @@ public class AlertService {
             } else if (consecutive == 1) {
                 String key = "JOB_FAILURE_" + jobName;
                 activeAlertsMap.put(key, AlertDto.builder()
-                        .type("Échec du traitement")
+                        .alertKey(key)
+                        .typeKey("alerts.kind.jobFailure")
                         .severity(SEVERITY_WARNING)
                         .jobName(jobName)
-                        .message("Dernier run de " + jobName + " en échec")
+                        .messageKey("alerts.msg.jobFailure")
+                        .params(Map.of("job", jobName))
                         .triggeredAt(LocalDateTime.now())
                         .resolved(false)
                         .build());
@@ -122,10 +131,12 @@ public class AlertService {
             if (sla.isSlaBreached()) {
                 long lateMinutes = sla.getLateBySeconds() / 60;
                 activeAlertsMap.put(key, AlertDto.builder()
-                        .type("Délai SLA dépassé")
+                        .alertKey(key)
+                        .typeKey("alerts.kind.slaBreach")
                         .severity(lateMinutes > 60 ? SEVERITY_CRITICAL : SEVERITY_WARNING)
                         .jobName(sla.getJobName())
-                        .message(sla.getJobName() + " terminé avec " + lateMinutes + " min de retard")
+                        .messageKey("alerts.msg.slaBreach")
+                        .params(Map.of("job", sla.getJobName(), "minutes", lateMinutes))
                         .triggeredAt(LocalDateTime.now())
                         .resolved(false)
                         .build());
@@ -143,24 +154,29 @@ public class AlertService {
 
             if ("Non conforme".equals(r.getStatus())) {
                 activeAlertsMap.put(key, AlertDto.builder()
-                        .type("Écart de réconciliation")
+                        .alertKey(key)
+                        .typeKey("alerts.kind.reconciliation")
                         .severity(SEVERITY_CRITICAL)
                         .jobName(r.getTableName())
-                        .message(String.format(
-                                "Table %s : Oracle=%d, SQLServer=%d (taux=%.1f%%)",
-                                r.getTableName(), r.getOracleCount(),
-                                r.getSqlServerCount(), r.getReconciliationRate()))
+                        .messageKey("alerts.msg.reconciliationKo")
+                        .params(Map.of(
+                                "table", r.getTableName(),
+                                "oracle", r.getOracleCount(),
+                                "sql", r.getSqlServerCount(),
+                                "rate", String.format("%.1f", r.getReconciliationRate())))
                         .triggeredAt(LocalDateTime.now())
                         .resolved(false)
                         .build());
-            } else if (SEVERITY_WARNING.equals(r.getStatus())) {
+            } else if (RECON_STATUS_WARNING.equals(r.getStatus())) {
                 activeAlertsMap.put(key, AlertDto.builder()
-                        .type("Écart de réconciliation")
+                        .alertKey(key)
+                        .typeKey("alerts.kind.reconciliation")
                         .severity(SEVERITY_WARNING)
                         .jobName(r.getTableName())
-                        .message(String.format(
-                                "Table %s : taux de réconciliation à %.1f%%",
-                                r.getTableName(), r.getReconciliationRate()))
+                        .messageKey("alerts.msg.reconciliationWarn")
+                        .params(Map.of(
+                                "table", r.getTableName(),
+                                "rate", String.format("%.1f", r.getReconciliationRate())))
                         .triggeredAt(LocalDateTime.now())
                         .resolved(false)
                         .build());
@@ -178,10 +194,12 @@ public class AlertService {
 
         if (drifts > 0) {
             activeAlertsMap.put(key, AlertDto.builder()
-                    .type("Modification du schéma")
-                    .severity("Information")
+                    .alertKey(key)
+                    .typeKey("alerts.kind.schemaDrift")
+                    .severity(SEVERITY_INFO)
                     .jobName("SCHEMA_SOURCE")
-                    .message(drifts + " modification(s) de schéma détectée(s) dans les dernières 24h")
+                    .messageKey("alerts.msg.schemaDrift")
+                    .params(Map.of("count", drifts))
                     .triggeredAt(LocalDateTime.now())
                     .resolved(false)
                     .build());
