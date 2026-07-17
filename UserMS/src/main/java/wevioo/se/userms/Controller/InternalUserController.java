@@ -23,7 +23,7 @@ public class InternalUserController {
             @RequestParam(required = false) String username,
             @RequestParam(required = false) String email) {
 
-        log.info(">>> INTERNAL HIT - username={}, email={}", username, email);
+        log.debug(">>> INTERNAL HIT - username={}, email={}", username, email);
 
         if (username != null) {
             return userService.findCredentialsByUsername(username)
@@ -40,7 +40,7 @@ public class InternalUserController {
 
     @GetMapping("/credentials/{id}")
     public ResponseEntity<UserCredentialsResponse> getCredentialsById(@PathVariable UUID id) {
-        log.info(">>> INTERNAL HIT - id={}", id);
+        log.debug(">>> INTERNAL HIT - id={}", id);
         return userService.findCredentialsById(id)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
@@ -50,7 +50,7 @@ public class InternalUserController {
     public ResponseEntity<Void> updatePassword(
             @PathVariable UUID id,
             @RequestBody PasswordUpdateRequest request) {
-        log.info(">>> INTERNAL HIT - updatePassword id={}", id);
+        log.debug(">>> INTERNAL HIT - updatePassword id={}", id);
         userService.updatePassword(id, request.passwordHash());
         return ResponseEntity.noContent().build();
     }

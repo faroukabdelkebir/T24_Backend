@@ -1,6 +1,5 @@
 package wevioo.se.userms.Config;
 
-import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -13,15 +12,16 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.crypto.factory.PasswordEncoderFactories;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 @Slf4j
@@ -42,7 +42,12 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
 
-                        .requestMatchers("/api/v1/users/internal/**").permitAll()
+                        // Endpoints internes (hashes de mots de passe) : réservés au
+                        // client OAuth2 "auth-service" via ses scopes dédiés.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/users/internal/**")
+                        .hasAuthority("SCOPE_user:credentials:read")
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/users/internal/**")
+                        .hasAuthority("SCOPE_user:credentials:write")
 
                         .requestMatchers(HttpMethod.GET, "/api/v1/users/**").hasAnyAuthority(
                                 "SCOPE_user:read", "SCOPE_user:write"
@@ -63,6 +68,13 @@ public class SecurityConfig {
     }
 
 
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return PasswordEncoderFactories.createDelegatingPasswordEncoder();
+    }
+
+
     @Bean
     public JwtAuthenticationConverter jwtAuthenticationConverter() {
         JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
@@ -77,22 +89,24 @@ public class SecurityConfig {
                 .stream()
                 .map(scope -> new SimpleGrantedAuthority("SCOPE_" + scope));
 
-        List<String> roles = jwt.getClaimAsStringList("roles");
-        Stream<GrantedAuthority> roleAuthorities = (roles != null ? roles : Collections.<String>emptyList())
+        Stream<GrantedAuthority> roleAuthorities = extractRoles(jwt)
                 .stream()
                 .map(role -> new SimpleGrantedAuthority("ROLE_" + role));
 
         return Stream.concat(scopeAuthorities, roleAuthorities).toList();
     }
 
-//    private List<String> extractScopes(Jwt jwt) {
-//        String scopeClaim = jwt.getClaimAsString("scope");
-//        if (scopeClaim != null && !scopeClaim.isBlank()) {
-//            return List.of(scopeClaim.split(" "));
-//        }
-//        List<String> scpList = jwt.getClaimAsStringList("scp");
-//        return scpList != null ? scpList : Collections.emptyList();
-//    }
+    private List<String> extractRoles(Jwt jwt) {
+        List<String> roles = jwt.getClaimAsStringList("roles");
+        if (roles != null && !roles.isEmpty()) {
+            return roles;
+        }
+
+        return Optional.ofNullable(jwt.getClaimAsString("role"))
+                .filter(role -> !role.isBlank())
+                .map(List::of)
+                .orElseGet(Collections::emptyList);
+    }
 
     private List<String> extractScopes(Jwt jwt) {
         List<String> scopeList = jwt.getClaimAsStringList("scope");
@@ -106,9 +120,4 @@ public class SecurityConfig {
         List<String> scpList = jwt.getClaimAsStringList("scp");
         return scpList != null ? scpList : Collections.emptyList();
     }
-//    @Bean
-//    public PasswordEncoder passwordEncoder() {
-//        return new BCryptPasswordEncoder(12);
-//    }
 }
-

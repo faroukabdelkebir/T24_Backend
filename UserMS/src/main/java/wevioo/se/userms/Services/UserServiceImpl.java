@@ -27,6 +27,7 @@ public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
     private final UserMapper userMapper;
+    private final PasswordEncoder passwordEncoder;
 
 
     @Override
@@ -40,7 +41,7 @@ public class UserServiceImpl implements UserService {
         User user = User.builder()
                 .username(request.username())
                 .email(request.email().toLowerCase())
-                .passwordHash(request.password())
+                .passwordHash(passwordEncoder.encode(request.password()))
                 .firstName(request.firstName())
                 .lastName(request.lastName())
                 .role(request.role())
@@ -84,7 +85,7 @@ public class UserServiceImpl implements UserService {
             user.setEmail(request.email().toLowerCase());
         }
         if (request.password() != null) {
-            user.setPasswordHash(request.password());
+            user.setPasswordHash(passwordEncoder.encode(request.password()));
         }
         if (request.firstName() != null) {
             user.setFirstName(request.firstName());
@@ -198,12 +199,16 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional
     public void updatePassword(UUID id, String newHashedPassword) {
-        userRepository.findById(id).ifPresent(u -> {
-            u.setPasswordHash(newHashedPassword);
-            userRepository.save(u);
-        });
+        User user = findUserById(id);
+        user.setPasswordHash(newHashedPassword);
+        userRepository.save(user);
+        log.info("Password updated for user: id={}", id);
     }
 }
+
+
+
 
 

@@ -3,17 +3,20 @@ server:
   port: 8085
 
 spring:
+  config:
+    import: optional:file:.env[.properties]
+
   application:
     name: UserMS
 
   datasource:
     url: jdbc:mysql://localhost:3306/bank_user?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
-    username: Wevioo
-    password: "wevioo2026"
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
 
   jpa:
     hibernate:
-      ddl-auto: create
+      ddl-auto: update
       format_sql: true
       jdbc:
           batch_size: 50
@@ -28,10 +31,12 @@ spring:
           jwk-set-uri: http://localhost:8090/oauth2/jwks
           issuer-uri:  http://localhost:8090
 
+
+
 eureka:
   client:
     service-url:
-      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka}
+      defaultZone: ${EUREKA_URL}
     fetch-registry: true
     register-with-eureka: true
   instance:
@@ -62,5 +67,5 @@ logging:
     org.springframework.security: INFO
     com.bank.platform.user: DEBUG
     org.hibernate.SQL: WARN
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId}] %logger{40} - %msg%n"
+#  pattern:
+#    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId}] %logger{40} - %msg%n"
