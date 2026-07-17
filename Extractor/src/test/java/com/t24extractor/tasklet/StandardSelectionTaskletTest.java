@@ -63,13 +63,35 @@ class StandardSelectionTaskletTest {
         verify(jdbcBi, never()).execute(contains("UPDATE batch_config"));
     }
 
+    @Test
+    void defaultsSystemFieldToStringWhenDataTypeIsMissing() throws Exception {
+        StandardSelectionTasklet tasklet = configuredTasklet(
+                "FUNDS.TRANSFER$HIS",
+                "FBNK_FUNDS_TRANSFER001",
+                "X",
+                """
+                <row>
+                  <c6 m="147">35</c6>
+                  <c10 m="147">S</c10>
+                  <c2 m="147">D</c2>
+                  <c3 m="147">147</c3>
+                  <c1 m="147">MISSING.TYPE.FIELD</c1>
+                </row>
+                """);
+        tasklet.setTableType("X");
+        BatchTestContext context = BatchTestContext.create();
+
+        RepeatStatus result = tasklet.execute(context.contribution(), context.chunkContext());
+
+        assertEquals(RepeatStatus.FINISHED, result);
+        JSONObject sysFieldOds = new JSONObject(
+                context.jobExecution().getExecutionContext().getString("sysFieldOds"));
+        assertEquals("String35.c147", sysFieldOds.getString("MISSING_TYPE_FIELD"));
+    }
+
     private StandardSelectionTasklet configuredTasklet(
             String t24Table, String oracleTable, String type) {
-        when(tafjVocRepository.findTafjVocByOrclFileName(oracleTable))
-                .thenReturn(Optional.of(new TafjVoc(t24Table, type, oracleTable)));
-        StandardSelectionRecord record = new StandardSelectionRecord();
-        record.setRecid(t24Table);
-        record.setXmlRecord("""
+        return configuredTasklet(t24Table, oracleTable, type, """
                 <row>
                   <c4 m="1">TEXT</c4>
                   <c6 m="1">35</c6>
@@ -79,6 +101,15 @@ class StandardSelectionTaskletTest {
                   <c1 m="1">NAME</c1>
                 </row>
                 """);
+    }
+
+    private StandardSelectionTasklet configuredTasklet(
+            String t24Table, String oracleTable, String type, String xmlRecord) {
+        when(tafjVocRepository.findTafjVocByOrclFileName(oracleTable))
+                .thenReturn(Optional.of(new TafjVoc(t24Table, type, oracleTable)));
+        StandardSelectionRecord record = new StandardSelectionRecord();
+        record.setRecid(t24Table);
+        record.setXmlRecord(xmlRecord);
         String lookup = t24Table.contains("$") ? t24Table.substring(0, t24Table.indexOf('$')) : t24Table;
         when(standardSelectionRepository.findById(lookup)).thenReturn(Optional.of(record));
 

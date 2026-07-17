@@ -209,14 +209,21 @@ public class StandardSelectionTasklet implements Tasklet {
     }
 
     private void fillSystemFieldData(ProcessingContext context, String name) {
-        String dataType = context.dataTypeField.get(name).toString();
-        if ("S".equals(context.typeField.get(name))) {
+        String dataType = context.dataTypeField.optString(name, "");
+        String fieldType = context.typeField.optString(name, "S");
+        String fieldLength = context.lengthField.optString(name, "MAX");
+        List<String> missingFields = missingStandardSelectionFields(context, name);
+        if (!missingFields.isEmpty()) {
+            log.warn("Champ '{}' du STANDARD.SELECTION incomplet pour la table '{}': champs absents {}, valeurs par defaut utilisees",
+                    context.nameField.optString(name, name), t24TableName, missingFields);
+        }
+        if ("S".equals(fieldType)) {
             if (isFloatLikeType(dataType)) {
                 context.sysFieldOds.put((String) context.nameField.get(name), "Float.c" + name);
             } else if (isIntegerLikeType(dataType)) {
                 context.sysFieldOds.put((String) context.nameField.get(name), "Integer.c" + name);
             } else {
-                context.sysFieldOds.put((String) context.nameField.get(name), STRING_TYPE + context.lengthField.get(name) + ".c" + name);
+                context.sysFieldOds.put((String) context.nameField.get(name), STRING_TYPE + fieldLength + ".c" + name);
             }
             return;
         }
@@ -224,8 +231,31 @@ public class StandardSelectionTasklet implements Tasklet {
         multiValueBlobFields.add((String) context.nameField.get(name));
     }
 
+    private List<String> missingStandardSelectionFields(ProcessingContext context, String name) {
+        List<String> missingFields = new ArrayList<>();
+        if (!context.nameField.has(name)) {
+            missingFields.add("c1");
+        }
+        if (!context.dataField.has(name)) {
+            missingFields.add("c2");
+        }
+        if (!context.fieldNo.has(name)) {
+            missingFields.add("c3");
+        }
+        if (!context.dataTypeField.has(name)) {
+            missingFields.add("c4");
+        }
+        if (!context.lengthField.has(name)) {
+            missingFields.add("c6");
+        }
+        if (!context.typeField.has(name)) {
+            missingFields.add("c10");
+        }
+        return missingFields;
+    }
+
     private void fillEnhancedFieldDataType(ProcessingContext context, HashMap<String, String> auxMap, String dTypeField) {
-        String dataType = context.dataTypeField.get(dTypeField).toString();
+        String dataType = context.dataTypeField.optString(dTypeField, "");
         if (isFloatLikeType(dataType)) {
             context.enhancedFieldDataType.put("c" + auxMap.get(dTypeField), "Float");
         } else if (isIntegerLikeType(dataType)) {

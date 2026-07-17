@@ -2,6 +2,7 @@ package com.t24extractor.repository.bi_repos;
 
 import com.t24extractor.commons.Constants;
 import com.t24extractor.model.SchemaSource;
+import org.springframework.data.jdbc.repository.query.Modifying;
 import org.springframework.data.jdbc.repository.query.Query;
 import org.springframework.data.repository.CrudRepository;
 import org.springframework.data.repository.query.Param;
@@ -31,5 +32,12 @@ public interface SchemaSourceRepository extends CrudRepository<SchemaSource, Str
     @Query(Constants.COUNT_ENABLED_ROWS_TABLE_SCHEMA_SOURCE)
     long countAllByTableName(@Param("tableName") String tableName);
 
+    @Modifying
+    @Query("UPDATE " + Constants.SCHEMA_SOURCE + " SET _enabled = :enabled WHERE table_name = :tableName AND column_name = :columnName")
+    int updateEnabledByTableNameAndColumnName(
+            @Param("tableName") String tableName,
+            @Param("columnName") String columnName,
+            @Param("enabled") boolean enabled
+    );
 
 }
