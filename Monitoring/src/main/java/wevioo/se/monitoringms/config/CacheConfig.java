@@ -7,6 +7,7 @@ import org.springframework.cache.caffeine.CaffeineCache;
 import org.springframework.cache.support.SimpleCacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import wevioo.se.monitoringms.service.AnalyticsService;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -18,6 +19,7 @@ import java.util.concurrent.TimeUnit;
  *  - schema     : 10 minutes   (rarement modifié)
  *  - config     : 5 minutes
  *  - reports    : 15 minutes
+ *  - analytics  : 5 minutes
  */
 @Configuration
 public class CacheConfig {
@@ -38,7 +40,8 @@ public class CacheConfig {
                 build(CACHE_KPIS,       2, TimeUnit.MINUTES,  500),
                 build(CACHE_SCHEMA,    10, TimeUnit.MINUTES,  1000),
                 build(CACHE_CONFIG,     5, TimeUnit.MINUTES,  200),
-                build(CACHE_REPORTS,   15, TimeUnit.MINUTES,  100)
+                build(CACHE_REPORTS,   15, TimeUnit.MINUTES,  100),
+                build(AnalyticsService.CACHE_ANALYTICS, 5, TimeUnit.MINUTES, 500)
         ));
         return manager;
     }
@@ -51,4 +54,5 @@ public class CacheConfig {
                         .recordStats()
                         .build());
     }
+
 }

@@ -2,7 +2,6 @@ package wevioo.se.monitoringms.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -33,16 +32,15 @@ public class SsePublisher {
 
     private final DashboardService dashboardService;
     private final AlertService     alertService;
-    private final ObjectMapper mapper;
+    private final ObjectMapper objectMapper;
 
     private final Map<Long, SseEmitter> clients = new ConcurrentHashMap<>();
     private final AtomicLong idSeq   = new AtomicLong();
 
-    public SsePublisher(DashboardService dashboardService, AlertService alertService) {
+    public SsePublisher(ObjectMapper objectMapper, DashboardService dashboardService, AlertService alertService) {
+        this.objectMapper     = objectMapper;
         this.dashboardService = dashboardService;
         this.alertService     = alertService;
-        this.mapper           = new ObjectMapper()
-                .registerModule(new JavaTimeModule());
     }
 
     // ── Abonnement ───────────────────────────────────────────────────────────
@@ -127,7 +125,7 @@ public class SsePublisher {
         if (clients.isEmpty()) return;
         String json;
         try {
-            json = mapper.writeValueAsString(data);
+            json = objectMapper.writeValueAsString(data);
         } catch (JsonProcessingException e) {
             log.error("[SSE] Erreur de sérialisation : {}", e.getMessage());
             return;
