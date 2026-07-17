@@ -24,7 +24,7 @@ public class MailService {
             MimeMessageHelper helper = new MimeMessageHelper(msg, true, "UTF-8");
 
             helper.setTo(to);
-            helper.setSubject("Reset your password – Bank Platform");
+            helper.setSubject("Reset your password – DataBridge Banking");
             helper.setText(buildResetHtml(username, resetLink, expirationMinutes), true);
 
             mailSender.send(msg);
@@ -41,7 +41,7 @@ public class MailService {
             MimeMessageHelper helper = new MimeMessageHelper(msg, true, "UTF-8");
 
             helper.setTo(to);
-            helper.setSubject("Your password has been changed – Bank Platform");
+            helper.setSubject("Your password has been changed – DataBridge Banking");
             helper.setText(buildChangedHtml(username), true);
 
             mailSender.send(msg);
@@ -57,7 +57,7 @@ public class MailService {
             <html lang="en">
             <body style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto;">
               <div style="background:#1a3c5e;padding:24px;text-align:center;">
-                <h1 style="color:#fff;margin:0;font-size:22px;">Bank Platform</h1>
+                <h1 style="color:#fff;margin:0;font-size:22px;">DataBridge Banking</h1>
               </div>
               <div style="padding:32px;border:1px solid #e0e0e0;">
                 <h2 style="color:#1a3c5e;">Password Reset Request</h2>
@@ -80,7 +80,7 @@ public class MailService {
                 </p>
               </div>
               <div style="padding:16px;text-align:center;color:#999;font-size:12px;">
-                © 2024 Bank Platform. This is an automated message.
+                © 2026 DataBridge Banking. This is an automated message.
               </div>
             </body>
             </html>
@@ -93,7 +93,7 @@ public class MailService {
             <html lang="en">
             <body style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto;">
               <div style="background:#1a3c5e;padding:24px;text-align:center;">
-                <h1 style="color:#fff;margin:0;font-size:22px;">Bank Platform</h1>
+                <h1 style="color:#fff;margin:0;font-size:22px;">DataBridge Banking</h1>
               </div>
               <div style="padding:32px;border:1px solid #e0e0e0;">
                 <h2 style="color:#1a3c5e;">Password Changed</h2>
