@@ -54,7 +54,6 @@ public class JobLauncherController {
     }
 
     @RequestMapping("/start")
-    @CrossOrigin
     public void handleMain()  {
 
         JobParameters jobParameters = new JobParametersBuilder()
@@ -72,7 +71,6 @@ public class JobLauncherController {
     }
 
     @RequestMapping("/customer/start")
-    @CrossOrigin
     public void handleCustomer()  {
         JobParameters jobParameters = new JobParametersBuilder()
                 .addString(RUN_ID, UUID.randomUUID().toString())
@@ -89,7 +87,6 @@ public class JobLauncherController {
     }
 
     @RequestMapping("/ft-his/start")
-    @CrossOrigin
     public void handleFt() {
         JobParameters jobParameters = new JobParametersBuilder()
                 .addString(RUN_ID, UUID.randomUUID().toString())
@@ -106,7 +103,6 @@ public class JobLauncherController {
     }
 
     @RequestMapping("/billdetails/start")
-    @CrossOrigin
     public void handleBillDetails() throws Exception {
         String jobName = billDetailsJob.getName();
         if (!jobRepository.findRunningJobExecutions(jobName).isEmpty()) {
@@ -121,7 +117,6 @@ public class JobLauncherController {
     }
 
     @RequestMapping("/stop")
-    @CrossOrigin
     public void handleStoppingAllJobs()  {
         Set<JobExecution> executions = jobRepository.findRunningJobExecutions("T24");
         log.info("Executions: {}", executions);

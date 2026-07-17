@@ -27,7 +27,10 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static com.t24extractor.commons.Constants.*;
 
@@ -129,10 +132,71 @@ public class BISyncTasklet implements AbstractBISyncTasklet, Tasklet {
         schemaSourceAuditRepository.deleteAll(changesList);
     }
 
+    /**
+     * Alimente le contexte d'exécution avec des artefacts COHÉRENTS entre eux :
+     * le mapping XML (BI_STANDARD_SELECTION), la liste des colonnes (COLUMNS)
+     * et l'INSERT (SQL_QUERY) sont désormais tous dérivés du MÊME ensemble.
+     *
+     * Corrige deux défauts de l'ancienne version :
+     *  1. COLUMNS / SQL_QUERY étaient construits depuis les colonnes
+     *     « _enabled = 1 » brutes, alors que le mapping XML était filtré par
+     *     le STANDARD.SELECTION → une colonne active mais absente du
+     *     STANDARD.SELECTION (ex. BILL_REFERENCE) entrait dans l'INSERT sans
+     *     exister dans la table cible ni être alimentée par le processeur,
+     *     faisant échouer le writer (« Unable to retrieve data from the
+     *     source » en mode useBulkCopyForBatchInsert).
+     *  2. Deux HashSet distincts étaient créés pour COLUMNS et SQL_QUERY :
+     *     l'alignement ordre des colonnes ↔ ordre des placeholders ne tenait
+     *     qu'à la stabilité d'itération de HashSet. Un unique LinkedHashSet
+     *     est maintenant partagé par les deux constructions.
+     */
     private void populateExecutionContext(StepContribution stepContribution, String biTable) {
-        stepContribution.getStepExecution().getJobExecution().getExecutionContext().put(BI_STANDARD_SELECTION, ssMapClean(biTable, this.ss).toString());
-        stepContribution.getStepExecution().getJobExecution().getExecutionContext().put("COLUMNS", sqlOps.fieldsToInsert(new HashSet<>(schemaSourceRepository.findSchemaSourceByTableNameAndEnabled(biTable, true))));
-        stepContribution.getStepExecution().getJobExecution().getExecutionContext().put("SQL_QUERY", sqlOps.insertConstruction(biTable, new HashSet<>(schemaSourceRepository.findSchemaSourceByTableNameAndEnabled(biTable, true))));
+
+        // 1. Nettoyage du STANDARD.SELECTION — la référence unique du pipeline.
+        JSONObject cleanedSS = ssMapClean(biTable, this.ss);
+
+        // 2. Colonnes actives, filtrées par le même critère que le mapping XML.
+        Set<SchemaSource> insertable = schemaSourceRepository
+                .findSchemaSourceByTableNameAndEnabled(biTable, true)
+                .stream()
+                .filter(column -> {
+                    boolean mapped = cleanedSS.has(column.getColumnName());
+                    if (!mapped) {
+                        log.warn("Colonne '{}' active dans SCHEMA_SOURCE mais absente du "
+                                        + "STANDARD.SELECTION : exclue de l'INSERT pour la table '{}'",
+                                column.getColumnName(), biTable);
+                    }
+                    return mapped;
+                })
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        // 3. Auto-réparation : toute colonne insérable encore absente de la
+        //    table cible est matérialisée (couvre les activations dont l'audit
+        //    a été consommé sans que l'ALTER TABLE ait réellement abouti).
+        ensureDestColumns(biTable, insertable);
+
+        stepContribution.getStepExecution().getJobExecution().getExecutionContext()
+                .put(BI_STANDARD_SELECTION, cleanedSS.toString());
+        stepContribution.getStepExecution().getJobExecution().getExecutionContext()
+                .put("COLUMNS", sqlOps.fieldsToInsert(insertable));
+        stepContribution.getStepExecution().getJobExecution().getExecutionContext()
+                .put("SQL_QUERY", sqlOps.insertConstruction(biTable, insertable));
+    }
+
+    /**
+     * Garantit que chaque colonne destinée à l'INSERT existe physiquement
+     * dans la table BI — le pipeline redevient auto-cohérent même si la
+     * table et SCHEMA_SOURCE ont divergé (run interrompu, audit purgé…).
+     */
+    private void ensureDestColumns(String biTable, Set<SchemaSource> insertable) {
+        Set<String> existing = sqlOps.destColumns(jdbcTemplate, biTable);
+        for (SchemaSource column : insertable) {
+            if (!existing.contains(column.getColumnName())) {
+                log.info("Colonne '{}' manquante dans la table '{}' : création automatique ({})",
+                        column.getColumnName(), biTable, column.getDataType());
+                sqlOps.addCol(jdbcTemplate, biTable, column.getColumnName(), column.getDataType());
+            }
+        }
     }
 
 

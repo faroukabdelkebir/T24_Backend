@@ -18,6 +18,16 @@ import java.util.List;
 
 import static com.t24extractor.commons.Constants.*;
 
+/**
+ * Normalise les champs multivalués (JSON) de la table principale vers des
+ * tables satellites « TABLE#CHAMP ».
+ *
+ * v2 — IDEMPOTENT : chaque satellite est vidé avant d'être realimenté.
+ * L'ancienne version réinsérait l'intégralité des lignes à chaque exécution
+ * du job, ce qui multipliait les volumes (ex. 4 000 factures → 16 000 lignes
+ * dans AA_BILL_DETAILS#SETTLE_STATUS après 4 runs) et faussait toutes les
+ * agrégations en aval.
+ */
 @Component
 @StepScope
 public class Json_Flattener implements Tasklet {
@@ -46,6 +56,7 @@ public class Json_Flattener implements Tasklet {
         Iterator<String> iterator = nameJs.keys();
 
         StringBuilder sb = new StringBuilder();
+        List<String> deleteQueries = new ArrayList<>();
         List<String> insertQueries = new ArrayList<>();
         while (iterator.hasNext()) {
             String key = iterator.next();
@@ -65,6 +76,9 @@ public class Json_Flattener implements Tasklet {
                         .append("[MV_SEQUENCE] int ,\n")
                         .append("[SEQUENCE] int \n")
                         .append(")");
+
+                // Idempotence : purge avant réalimentation complète
+                deleteQueries.add(purgeQuery(name, key));
 
                 String insertQuery = String.format("""
                         INSERT INTO [%s#%s] (_id, %s, [MV_SEQUENCE], [SEQUENCE])
@@ -88,6 +102,9 @@ public class Json_Flattener implements Tasklet {
                         .append("[SEQUENCE] int \n")
                         .append(")");
 
+                // Idempotence : purge avant réalimentation complète
+                deleteQueries.add(purgeQuery(name, key));
+
                 String insertQuery = STR."""
                         INSERT INTO [\{name}#\{key}] (_id, [\{key}], [SEQUENCE])
                         SELECT _id, lf.\{key}, lf.[SEQUENCE]
@@ -105,11 +122,21 @@ public class Json_Flattener implements Tasklet {
             jdbcTemplate.execute(sb.toString());
         }
 
+        if (!deleteQueries.isEmpty()) {
+            jdbcTemplate.batchUpdate(deleteQueries.toArray(new String[0]));
+        }
+
         if (!insertQueries.isEmpty()) {
             jdbcTemplate.batchUpdate(insertQueries.toArray(new String[0]));
         }
 
         return RepeatStatus.FINISHED;
+    }
+
+    /** Vide un satellite s'il existe — rend la normalisation rejouable. */
+    private String purgeQuery(String tableName, String key) {
+        return "IF EXISTS (SELECT * FROM sys.tables WHERE name='" + tableName + "#" + key + "') "
+                + "DELETE FROM [" + tableName + "#" + key + "]";
     }
 
     private boolean columnExistsInMainTable(String tableName, String columnName) {
