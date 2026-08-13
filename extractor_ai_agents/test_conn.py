@@ -4,20 +4,20 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-MSSQL_HOST = os.getenv("MSSQL_HOST", "127.0.0.1")
-MSSQL_PORT = os.getenv("MSSQL_PORT", "1433")
-MSSQL_DB = os.getenv("MSSQL_DB", "T24_TEST")
-MSSQL_USER = os.getenv("MSSQL_USER", "")
-MSSQL_PASS = os.getenv("MSSQL_PASS", "")
+BI_HOST = os.getenv("BI_HOST", "127.0.0.1")
+BI_PORT = os.getenv("BI_PORT", "1433")
+BI_DB = os.getenv("BI_DB", "T24_TEST")
+BI_USER = os.getenv("BI_USER", "")
+BI_PASS = os.getenv("BI_PASS", "")
 
 # Test 1 : authentification SQL (UID/PWD)
 try:
     conn = pyodbc.connect(
         "DRIVER={ODBC Driver 17 for SQL Server};"
-        f"SERVER={MSSQL_HOST},{MSSQL_PORT};"
-        f"DATABASE={MSSQL_DB};"
-        f"UID={MSSQL_USER};"
-        f"PWD={MSSQL_PASS};"
+        f"SERVER={BI_HOST},{BI_PORT};"
+        f"DATABASE={BI_DB};"
+        f"UID={BI_USER};"
+        f"PWD={BI_PASS};"
         "Connection Timeout=5;"
     )
     print("✅ Test 1 OK - Auth SQL")
@@ -29,8 +29,8 @@ except Exception as e:
 try:
     conn = pyodbc.connect(
         "DRIVER={ODBC Driver 17 for SQL Server};"
-        f"SERVER={MSSQL_HOST},{MSSQL_PORT};"
-        f"DATABASE={MSSQL_DB};"
+        f"SERVER={BI_HOST},{BI_PORT};"
+        f"DATABASE={BI_DB};"
         "Trusted_Connection=yes;"
         "Connection Timeout=5;"
     )
@@ -43,7 +43,7 @@ except Exception as e:
 try:
     conn = pyodbc.connect(
         "DRIVER={ODBC Driver 17 for SQL Server};"
-        f"SERVER={MSSQL_HOST},{MSSQL_PORT};"
+        f"SERVER={BI_HOST},{BI_PORT};"
         "Trusted_Connection=yes;"
         "Connection Timeout=5;"
     )

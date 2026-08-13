@@ -29,7 +29,6 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
 ]
  
-CORS_ALLOW_ALL_ORIGINS = True  # Pour le dev — restreindre en prod
  
 ROOT_URLCONF = "urls"
 WSGI_APPLICATION = "wsgi.application"
@@ -66,11 +65,11 @@ STATIC_URL = "/static/"
 # =============================================
 # SQL Server (BI destination)
 # =============================================
-MSSQL_HOST = os.getenv("MSSQL_HOST", "127.0.0.1")
-MSSQL_PORT = os.getenv("MSSQL_PORT", "1433")
-MSSQL_DB = os.getenv("MSSQL_DB", "T24_TEST")
-MSSQL_USER = os.getenv("MSSQL_USER", "T24")
-MSSQL_PASS = os.getenv("MSSQL_PASS", "")
+BI_HOST = os.getenv("BI_HOST", "127.0.0.1")
+BI_PORT = os.getenv("BI_PORT", "1433")
+BI_DB = os.getenv("BI_DB", "T24_TEST")
+BI_USER = os.getenv("BI_USER", "T24")
+BI_PASS = os.getenv("BI_PASS", "")
  
 # =============================================
 # Oracle T24 (source)

@@ -15,10 +15,10 @@ from django.conf import settings
 def get_connection():
     return pyodbc.connect(
         f"DRIVER={{ODBC Driver 17 for SQL Server}};"
-        f"SERVER={settings.MSSQL_HOST},{settings.MSSQL_PORT};"
-        f"DATABASE={settings.MSSQL_DB};"
-        f"UID={settings.MSSQL_USER};"
-        f"PWD={settings.MSSQL_PASS};"
+        f"SERVER={settings.BI_HOST},{settings.BI_PORT};"
+        f"DATABASE={settings.BI_DB};"
+        f"UID={settings.BI_USER};"
+        f"PWD={settings.BI_PASS};"
     )
 
 
