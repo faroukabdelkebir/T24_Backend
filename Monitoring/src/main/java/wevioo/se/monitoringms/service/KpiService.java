@@ -16,27 +16,37 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Calcul de tous les KPIs — mis en cache 2 minutes.
+ * Calcul des indicateurs de performance du processus d'extraction.
  *
- * KPIs produits :
- *  - Taux de succès global et par job
- *  - Volume extrait par table
- *  - Débit moyen (rows/sec)
- *  - Durée moyenne par job
- *  - Tendance quotidienne (N derniers jours)
- *  - Compteur d'échecs consécutifs
+ * <p>Indicateurs produits : taux de succès global et par traitement, volumes
+ * extraits par table, débit moyen, durées moyennes, décompte des échecs et
+ * tendance quotidienne.</p>
+ *
+ * <p>Le résultat est mis en cache deux minutes, la fenêtre d'analyse servant
+ * de clé : chaque profondeur demandée dispose donc de sa propre entrée.</p>
+ *
+ * @see wevioo.se.monitoringms.dto.KpiDto
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class KpiService {
 
+    /** Accès aux métadonnées Spring Batch. */
     private final BatchExecutionRepository batchRepo;
+
+    /** Accès aux comptages d'extraction, pour les volumétries. */
     private final StatsRepository statsRepo;
 
     /**
-     * KPIs complets sur la fenêtre demandée.
-     * @param windowDays  nombre de jours d'historique (ex : 7, 30)
+     * Calcule l'ensemble des indicateurs sur une fenêtre glissante.
+     *
+     * <p>Le compteur d'échecs retenu est le maximum observé parmi les
+     * traitements : il traduit la situation du traitement le plus dégradé
+     * plutôt qu'une moyenne qui la masquerait.</p>
+     *
+     * @param windowDays profondeur de la fenêtre en jours, par exemple {@code 7} ou {@code 30}
+     * @return les indicateurs calculés, horodatés par leur instant de calcul
      */
     @Cacheable(value = CacheConfig.CACHE_KPIS, key = "#windowDays")
     public KpiDto computeKpis(int windowDays) {

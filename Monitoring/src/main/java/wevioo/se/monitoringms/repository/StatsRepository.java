@@ -9,15 +9,25 @@ import wevioo.se.monitoringms.model.StatsRecord;
 import java.util.List;
 
 /**
- * Accès à la table `stats` alimentée par l'extracteur T24.
- * Utilisé pour le module de réconciliation Oracle ↔ SQL Server.
+ * Accès en lecture à la table {@code stats}, alimentée par le microservice
+ * d'extraction T24 à l'issue de chaque chargement.
+ *
+ * <p>Support de la réconciliation Oracle ↔ SQL Server et du calcul des
+ * volumétries. La colonne portant le nombre de lignes chargées se nomme
+ * {@code mongo_count}, héritage d'une cible NoSQL antérieure ; elle désigne
+ * aujourd'hui les lignes insérées en SQL Server.</p>
+ *
+ * @see wevioo.se.monitoringms.model.StatsRecord
+ * @see wevioo.se.monitoringms.service.ReconciliationService
  */
 @Repository
 @RequiredArgsConstructor
 public class StatsRepository {
 
+    /** Gabarit JDBC pointant sur la base décisionnelle SQL Server. */
     private final JdbcTemplate jdbc;
 
+    /** Convertit une ligne de la table {@code stats} en modèle. */
     private static final RowMapper<StatsRecord> STATS_MAPPER = (rs, row) ->
             StatsRecord.builder()
                     .jobExecutionId(rs.getLong("job_execution_id"))
@@ -30,7 +40,12 @@ public class StatsRepository {
                     .build();
 
     /**
-     * Dernières statistiques par table (dernier business_date).
+     * Recherche le dernier comptage connu pour chaque table extraite.
+     *
+     * <p>La sélection retient, par table, la ligne dont la date d'insertion
+     * est la plus récente.</p>
+     *
+     * @return un enregistrement par table, triés par nom de table
      */
     public List<StatsRecord> findLatestPerTable() {
         return jdbc.query(
@@ -49,7 +64,12 @@ public class StatsRepository {
     }
 
     /**
-     * Historique des stats pour une table donnée.
+     * Recherche l'historique des comptages d'une table.
+     *
+     * @param tableName nom de la table SQL Server
+     * @param limit     nombre maximal de lignes à ramener
+     * @return les comptages du plus récent au plus ancien ; liste vide si la
+     *         table est inconnue
      */
     public List<StatsRecord> findByTable(String tableName, int limit) {
         return jdbc.query(
@@ -59,7 +79,14 @@ public class StatsRepository {
     }
 
     /**
-     * Total de lignes extraites sur N jours.
+     * Totalise les lignes chargées sur une fenêtre glissante, toutes tables
+     * confondues.
+     *
+     * <p>Le filtrage porte sur la date métier, stockée sous forme numérique
+     * {@code AAAAMMJJ} et convertie en date par la requête.</p>
+     *
+     * @param days profondeur de la fenêtre, en jours
+     * @return le total des lignes chargées, ou {@code 0} en l'absence de données
      */
     public long sumRowsExtracted(int days) {
         Long total = jdbc.queryForObject(
@@ -73,7 +100,10 @@ public class StatsRepository {
     }
 
     /**
-     * Volume extrait par table sur N jours.
+     * Totalise les lignes chargées par table sur une fenêtre glissante.
+     *
+     * @param days profondeur de la fenêtre, en jours
+     * @return un agrégat par table, de la plus volumineuse à la moins volumineuse
      */
     public List<TableVolumeRecord> sumRowsByTable(int days) {
         return jdbc.query(
@@ -96,6 +126,14 @@ public class StatsRepository {
                 days);
     }
 
+    /**
+     * Volumétrie cumulée d'une table sur la fenêtre analysée.
+     *
+     * @param tableName   nom de la table SQL Server
+     * @param totalLoaded lignes effectivement chargées en cible
+     * @param totalSource lignes comptées côté Oracle
+     * @param runCount    nombre de chargements réalisés sur la période
+     */
     public record TableVolumeRecord(
             String tableName,
             long totalLoaded,

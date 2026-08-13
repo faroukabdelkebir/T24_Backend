@@ -6,21 +6,41 @@ import lombok.Data;
 import java.util.Map;
 
 /**
- * Enseignement calculé automatiquement à partir des données —
- * affiché dans le bandeau « insight » de la page Analytics.
+ * Enseignement calculé automatiquement à partir des données, affiché dans le
+ * bandeau « insight » des pages analytiques.
  *
- * La localisation se fait côté client : le backend n'envoie plus de texte
- * traduit mais une clé i18n ({@code detailKey}) et ses paramètres
- * d'interpolation ({@code params}). Le champ {@code detail} est conservé
- * pour les cas sans traduction (valeur brute, ex. code devise).
+ * <p>La localisation est déléguée au client : le backend n'envoie pas de texte
+ * traduit mais une clé d'internationalisation et ses paramètres
+ * d'interpolation. Le champ {@link #detail} n'est utilisé que pour les
+ * compléments qui ne se traduisent pas, comme un code devise.</p>
+ *
+ * <p>Un enseignement n'est produit que si les données le rendent calculable ;
+ * la liste renvoyée peut donc être plus courte que prévu, voire vide.</p>
+ *
+ * @see wevioo.se.monitoringms.service.AnalyticsService#insights(int)
  */
 @Data
 @Builder
 public class InsightDto {
-    private String type;                 // LEADER | CONCENTRATION | PIC_ACTIVITE
-    private String titleKey;             // clé i18n du titre
-    private String value;                // valeur principale (ex. « 457 »)
-    private String detail;               // complément brut sans traduction (fallback)
-    private String detailKey;            // clé i18n du complément (interpolable)
-    private Map<String, Object> params;  // paramètres d'interpolation du complément
+
+    /**
+     * Nature de l'enseignement, qui détermine sa mise en forme :
+     * {@code LEADER}, {@code CONCENTRATION} ou {@code PIC_ACTIVITE}.
+     */
+    private String type;
+
+    /** Clé d'internationalisation du titre. */
+    private String titleKey;
+
+    /** Valeur principale mise en avant, déjà formatée pour l'affichage. */
+    private String value;
+
+    /** Complément brut, non traduit ; utilisé à défaut de {@link #detailKey}. */
+    private String detail;
+
+    /** Clé d'internationalisation du complément, interpolable via {@link #params}. */
+    private String detailKey;
+
+    /** Paramètres d'interpolation du complément, indexés par nom de variable. */
+    private Map<String, Object> params;
 }

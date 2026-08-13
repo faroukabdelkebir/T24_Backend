@@ -5,12 +5,16 @@ import org.springframework.stereotype.Service;
 import java.util.Map;
 
 /**
- * Traduit les valeurs techniques destinées à être affichées sans modifier
- * les noms de classes, d'attributs ou les valeurs stockées en base.
+ * Traduit en français les valeurs techniques destinées à l'affichage.
+ *
+ * <p>La traduction ne s'applique qu'à la présentation : les noms de classes,
+ * d'attributs et les valeurs stockées en base restent inchangés, ce qui
+ * préserve la comparabilité avec les statuts Spring Batch d'origine.</p>
  */
 @Service
 public class DisplayTranslationService {
 
+    /** Correspondance entre statut Spring Batch et libellé français. */
     private static final Map<String, String> STATUSES = Map.ofEntries(
             Map.entry("ABANDONED", "Abandonné"),
             Map.entry("COMPLETED", "Terminé"),
@@ -24,6 +28,17 @@ public class DisplayTranslationService {
             Map.entry("UNKNOWN", "Inconnu")
     );
 
+    /**
+     * Traduit un statut d'exécution en libellé français.
+     *
+     * <p>La comparaison ignore la casse. Un statut inconnu est renvoyé tel
+     * quel plutôt que remplacé : mieux vaut afficher une valeur technique
+     * qu'en masquer une nouvelle.</p>
+     *
+     * @param value statut technique à traduire, éventuellement {@code null}
+     * @return le libellé français, ou la valeur d'entrée si elle est nulle,
+     *         vide ou non reconnue
+     */
     public String translateStatus(String value) {
         if (value == null || value.isBlank()) {
             return value;

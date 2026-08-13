@@ -10,14 +10,27 @@ import wevioo.se.monitoringms.model.SchemaSourceRecord;
 import java.util.List;
 
 /**
- * Accès en lecture à SCHEMA_SOURCE et SCHEMA_SOURCE_AUDIT.
+ * Accès en lecture au dictionnaire de schéma T24 et à son historique.
+ *
+ * <p>Interroge {@code SCHEMA_SOURCE}, qui décrit la correspondance entre
+ * champs T24 et colonnes SQL Server, ainsi que {@code SCHEMA_SOURCE_AUDIT},
+ * alimentée par un déclencheur à chaque modification du dictionnaire.</p>
+ *
+ * <p>Les noms de colonnes de ces tables mêlent plusieurs conventions
+ * ({@code _enabled}, {@code ssTag}, {@code UpdatedOn}…) : les requêtes
+ * énumèrent donc explicitement les colonnes plutôt que d'utiliser {@code *}.</p>
+ *
+ * @see wevioo.se.monitoringms.model.SchemaSourceRecord
+ * @see wevioo.se.monitoringms.model.SchemaAuditRecord
  */
 @Repository
 @RequiredArgsConstructor
 public class SchemaRepository {
 
+    /** Gabarit JDBC pointant sur la base décisionnelle SQL Server. */
     private final JdbcTemplate jdbc;
 
+    /** Convertit une ligne de {@code SCHEMA_SOURCE} en modèle. */
     private static final RowMapper<SchemaSourceRecord> SOURCE_MAPPER = (rs, row) ->
             SchemaSourceRecord.builder()
                     .id(rs.getString("id"))
@@ -32,6 +45,7 @@ public class SchemaRepository {
                     .insertDate(rs.getObject("insert_date", Long.class))
                     .build();
 
+    /** Convertit une ligne de {@code SCHEMA_SOURCE_AUDIT} en modèle. */
     private static final RowMapper<SchemaAuditRecord> AUDIT_MAPPER = (rs, row) ->
             SchemaAuditRecord.builder()
                     .id(rs.getInt("id"))
@@ -49,18 +63,37 @@ public class SchemaRepository {
 
     // ── SCHEMA_SOURCE ────────────────────────────────────────────────────────
 
+    /**
+     * Charge l'intégralité du dictionnaire de schéma.
+     *
+     * @return toutes les colonnes connues, triées par table puis par colonne
+     */
     public List<SchemaSourceRecord> findAll() {
         return jdbc.query(
                 "SELECT id, table_name, column_name, datatype, _enabled, indexed, ssTag, single_mult, local_ref, insert_date FROM SCHEMA_SOURCE ORDER BY table_name, column_name",
                 SOURCE_MAPPER);
     }
 
+    /**
+     * Charge les colonnes déclarées pour une table T24.
+     *
+     * @param tableName nom de la table T24, par exemple {@code FUNDS_TRANSFER#HIS}
+     * @return les colonnes de la table, triées par nom ; liste vide si la table
+     *         est absente du dictionnaire
+     */
     public List<SchemaSourceRecord> findByTable(String tableName) {
         return jdbc.query(
                 "SELECT id, table_name, column_name, datatype, _enabled, indexed, ssTag, single_mult, local_ref, insert_date FROM SCHEMA_SOURCE WHERE table_name = ? ORDER BY column_name",
                 SOURCE_MAPPER, tableName);
     }
 
+    /**
+     * Charge les seules colonnes effectivement extraites d'une table T24.
+     *
+     * @param tableName nom de la table T24
+     * @return les colonnes activées, triées par nom ; liste vide si aucune ne
+     *         l'est
+     */
     public List<SchemaSourceRecord> findEnabled(String tableName) {
         return jdbc.query(
                 "SELECT id, table_name, column_name, datatype, _enabled, indexed, ssTag, single_mult, local_ref, insert_date FROM SCHEMA_SOURCE WHERE table_name = ? AND _enabled = 1 ORDER BY column_name",
@@ -68,7 +101,9 @@ public class SchemaRepository {
     }
 
     /**
-     * Résumé par table : nombre de colonnes totales / actives / indexées.
+     * Résume la couverture du dictionnaire, table par table.
+     *
+     * @return un résumé par table T24, trié par nom de table
      */
     public List<TableSchemaSummary> summarizeByTable() {
         return jdbc.query(
@@ -93,12 +128,25 @@ public class SchemaRepository {
 
     // ── SCHEMA_SOURCE_AUDIT ──────────────────────────────────────────────────
 
+    /**
+     * Charge les dernières modifications de schéma, toutes tables confondues.
+     *
+     * @param limit nombre maximal d'événements à ramener
+     * @return les événements du plus récent au plus ancien
+     */
     public List<SchemaAuditRecord> findRecentAudit(int limit) {
         return jdbc.query(
                 "SELECT TOP (?) id, sourceId, sourceTable_name, sourceColumn_name, sourceDatatype, newSource_enabled, oldSource_enabled, newSourceIndexed, oldSourceIndexed, UpdatedBy, UpdatedOn FROM SCHEMA_SOURCE_AUDIT ORDER BY UpdatedOn DESC",
                 AUDIT_MAPPER, limit);
     }
 
+    /**
+     * Charge l'historique des modifications de schéma d'une table.
+     *
+     * @param tableName nom de la table T24
+     * @return les événements du plus récent au plus ancien ; liste vide si la
+     *         table n'a jamais été modifiée
+     */
     public List<SchemaAuditRecord> findAuditByTable(String tableName) {
         return jdbc.query(
                 "SELECT id, sourceId, sourceTable_name, sourceColumn_name, sourceDatatype, newSource_enabled, oldSource_enabled, newSourceIndexed, oldSourceIndexed, UpdatedBy, UpdatedOn FROM SCHEMA_SOURCE_AUDIT WHERE sourceTable_name = ? ORDER BY UpdatedOn DESC",
@@ -106,7 +154,16 @@ public class SchemaRepository {
     }
 
     /**
-     * Détecte les drifts récents : colonnes activées/désactivées dans les N derniers jours.
+     * Compte les dérives de schéma survenues récemment.
+     *
+     * <p>Toute modification enregistrée par le déclencheur d'audit compte,
+     * qu'il s'agisse d'une activation, d'une désactivation ou d'une pose
+     * d'index. L'horodatage étant stocké sous forme numérique
+     * {@code AAAAMMJJHHMMSS}, la borne est convertie dans ce format.</p>
+     *
+     * @param days profondeur de la fenêtre, en jours
+     * @return le nombre de modifications sur la période, ou {@code 0} si
+     *         l'agrégat n'a pu être calculé
      */
     public int countRecentDrifts(int days) {
         Integer count = jdbc.queryForObject(
@@ -120,6 +177,15 @@ public class SchemaRepository {
 
     // ── Inner record ────────────────────────────────────────────────────────
 
+    /**
+     * Couverture du dictionnaire pour une table T24.
+     *
+     * @param tableName      nom de la table T24
+     * @param totalColumns   nombre de colonnes déclarées
+     * @param enabledColumns nombre de colonnes effectivement extraites
+     * @param indexedColumns nombre de colonnes indexées côté SQL Server
+     * @param mvColumns      nombre de colonnes multivaluées
+     */
     public record TableSchemaSummary(
             String tableName,
             int    totalColumns,

@@ -16,24 +16,41 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * Génération de rapports récapitulatifs.
+ * Génération des rapports récapitulatifs du processus d'extraction.
  *
- * Rapports disponibles :
- *  - Rapport journalier  : KPIs du jour, réconciliation, SLA, alertes
- *  - Rapport hebdomadaire : tendances 7j, jobs les plus lents, taux de succès
+ * <p>Deux rapports sont produits : un rapport journalier consolidant
+ * indicateurs, réconciliation, SLA et alertes ; un rapport hebdomadaire
+ * centré sur les tendances et la comparaison à la semaine précédente.</p>
+ *
+ * <p>Les deux sont mis en cache quinze minutes, avec une clé intégrant la date
+ * du jour ou le lundi de la semaine courante : le passage à une nouvelle
+ * période invalide donc naturellement l'entrée.</p>
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class ReportService {
 
+    /** Source des indicateurs de performance. */
     private final KpiService            kpiService;
+
+    /** Source des écarts de réconciliation. */
     private final ReconciliationService reconciliationService;
+
+    /** Source des états de respect des fenêtres SLA. */
     private final SlaService            slaService;
+
+    /** Source des alertes actives. */
     private final AlertService          alertService;
 
     /**
-     * Rapport journalier complet — mis en cache 15 minutes.
+     * Produit le rapport journalier consolidé.
+     *
+     * <p>Les indicateurs sont calculés sur deux fenêtres — la journée et les
+     * sept derniers jours — afin de replacer la situation du jour dans sa
+     * tendance.</p>
+     *
+     * @return le rapport du jour, horodaté par son instant de génération
      */
     @Cacheable(value = "reports", key = "'daily_' + T(java.time.LocalDate).now().toString()")
     public DailyReport generateDailyReport() {
@@ -62,7 +79,12 @@ public class ReportService {
     }
 
     /**
-     * Rapport hebdomadaire — tendances et comparaison semaine précédente.
+     * Produit le rapport hebdomadaire.
+     *
+     * <p>Compare la semaine écoulée à la précédente et met en avant la table
+     * la plus volumineuse.</p>
+     *
+     * @return le rapport de la semaine, horodaté par son instant de génération
      */
     @Cacheable(value = "reports", key = "'weekly_' + T(java.time.LocalDate).now().with(T(java.time.DayOfWeek).MONDAY).toString()")
     public WeeklyReport generateWeeklyReport() {
@@ -86,6 +108,15 @@ public class ReportService {
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
+    /**
+     * Qualifie l'état général du processus à partir des indicateurs du jour.
+     *
+     * <p>Tout échec dégrade l'état, quel que soit le taux de succès : un
+     * incident isolé reste un incident.</p>
+     *
+     * @param kpis indicateurs de la journée
+     * @return « Dégradé », « Opérationnel », « Partiel » ou « Critique »
+     */
     private String computeOverallStatus(KpiDto kpis) {
         if (kpis.getFailureCount() > 0)            return "Dégradé";
         if (kpis.getOverallSuccessRate() == 100.0) return "Opérationnel";
@@ -93,12 +124,30 @@ public class ReportService {
         return "Critique";
     }
 
+    /**
+     * Estime le taux de succès de la semaine précédente.
+     *
+     * <p>Approximation assumée : le taux sur quatorze jours est traité comme
+     * la moyenne des deux semaines, d'où {@code 2 × taux14j − taux7j}. Le
+     * calcul suppose un volume d'exécutions comparable d'une semaine à
+     * l'autre ; l'écart obtenu vaut comme tendance, non comme mesure
+     * exacte.</p>
+     *
+     * @param kpis14d indicateurs sur quatorze jours
+     * @param kpis7d  indicateurs sur sept jours
+     * @return le taux estimé de la semaine précédente, en pourcentage
+     */
     private double computePreviousWeekRate(KpiDto kpis14d, KpiDto kpis7d) {
-        // Estimation grossière : taux 14j = moyenne des deux semaines
-        // On déduit : semaine N-1 ≈ 2 * taux14d - taux7d
         return 2 * kpis14d.getOverallSuccessRate() - kpis7d.getOverallSuccessRate();
     }
 
+    /**
+     * Identifie la table ayant reçu le plus de lignes sur la période.
+     *
+     * @param kpis indicateurs de la période
+     * @return le nom de la table, ou « Non disponible » si aucune volumétrie
+     *         n'est connue
+     */
     private String resolveTopVolumeTable(KpiDto kpis) {
         return kpis.getRowsByTable().entrySet().stream()
                 .max(java.util.Map.Entry.comparingByValue())
@@ -108,35 +157,79 @@ public class ReportService {
 
     // ── Inner DTOs ────────────────────────────────────────────────────────────
 
+    /** Rapport journalier consolidé du processus d'extraction. */
     @Data
     @Builder
     public static class DailyReport {
+
+        /** Journée couverte par le rapport. */
         private LocalDate                reportDate;
+
+        /** Instant de génération, utile pour interpréter les données mises en cache. */
         private LocalDateTime            generatedAt;
+
+        /** Indicateurs de la journée. */
         private KpiDto                   kpis1Day;
+
+        /** Indicateurs des sept derniers jours, pour situer la tendance. */
         private KpiDto                   kpis7Days;
+
+        /** État de réconciliation de chaque table extraite. */
         private List<ReconciliationDto> reconciliations;
+
+        /** État de respect des fenêtres SLA. */
         private List<SlaStatusDto>       slaStatuses;
+
+        /** Alertes actives au moment de la génération. */
         private List<AlertSummary>       activeAlerts;
+
+        /** Qualification de l'état général du processus. */
         private String                   overallStatus;
     }
 
+    /** Rapport hebdomadaire, centré sur les tendances. */
     @Data @Builder
     public static class WeeklyReport {
+
+        /** Premier jour de la semaine couverte. */
         private LocalDate              weekStart;
+
+        /** Dernier jour de la semaine couverte. */
         private LocalDate              weekEnd;
+
+        /** Instant de génération du rapport. */
         private LocalDateTime          generatedAt;
+
+        /** Indicateurs des sept derniers jours. */
         private KpiDto kpis;
+
+        /**
+         * Écart de taux de succès face à la semaine précédente, en points.
+         * Repose sur une estimation ; à lire comme une tendance.
+         */
         private double                 successRateDeltaVsPreviousWeek;
+
+        /** Table ayant reçu le plus de lignes sur la période. */
         private String                 topVolumeTable;
+
+        /** Volumétrie jour par jour sur la semaine. */
         private List<DailyVolumeDto>   trend;
     }
 
+    /** Vue allégée d'une alerte, telle qu'incluse dans un rapport. */
     @Data @Builder
     public static class AlertSummary {
+
+        /** Type d'alerte. */
         private String type;
+
+        /** Gravité : {@code CRITICAL}, {@code WARNING} ou {@code INFO}. */
         private String severity;
+
+        /** Traitement concerné. */
         private String jobName;
+
+        /** Message brut ; peut être vide, le moteur d'alertes produisant des clés d'internationalisation. */
         private String message;
     }
 }

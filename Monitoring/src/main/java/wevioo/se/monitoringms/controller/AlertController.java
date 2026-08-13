@@ -24,14 +24,30 @@ import java.util.Map;
 @Tag(name = "Alertes", description = "Gestion des alertes actives (échecs, SLA, réconciliation, modifications du schéma)")
 public class AlertController {
 
+    /** Moteur d'alertes. */
     private final AlertService alertService;
 
+    /**
+     * Retourne les alertes actuellement actives.
+     *
+     * @return les alertes non acquittées, ou un tableau vide
+     */
     @GetMapping
     @Operation(summary = "Liste des alertes actives non résolues")
     public ResponseEntity<List<AlertDto>> getActiveAlerts() {
         return ResponseEntity.ok(alertService.getActiveAlerts());
     }
 
+    /**
+     * Acquitte une alerte.
+     *
+     * <p>L'acquittement n'est pas définitif : si la condition d'origine
+     * persiste, la prochaine évaluation recréera l'alerte. Une clé inconnue
+     * n'est pas une erreur et donne la même réponse.</p>
+     *
+     * @param alertKey clé de l'alerte à acquitter
+     * @return un accusé reprenant la clé traitée
+     */
     @DeleteMapping("/{alertKey}")
     @Operation(summary = "Acquitter (résoudre) une alerte",
             description = "Supprime l'alerte de la liste active. Elle sera recréée si la condition persiste.")

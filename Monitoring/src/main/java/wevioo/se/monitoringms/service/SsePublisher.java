@@ -16,27 +16,54 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Publisher SSE (Server-Sent Events) pour la mise à jour temps-réel du dashboard.
+ * Diffusion temps réel vers le tableau de bord, par flux d'événements
+ * serveur (Server-Sent Events).
  *
- * Clients supportés : EventSource JavaScript (natif navigateur).
- * Endpoint : GET /api/v1/stream/jobs
+ * <p>Exposé par {@code GET /api/v1/stream/jobs} et consommé par l'API
+ * {@code EventSource} native des navigateurs.</p>
  *
- * Événements émis :
- *   - "jobs"    → liste des jobs en cours (toutes les 10 sec)
- *   - "alerts"  → alertes actives (toutes les 30 sec)
- *   - "heartbeat" → keepalive (toutes les 25 sec)
+ * <p>Événements émis :</p>
+ * <ul>
+ *   <li>{@code connected} — confirmation d'abonnement, à la connexion ;</li>
+ *   <li>{@code jobs} — traitements en cours, toutes les dix secondes ;</li>
+ *   <li>{@code alerts} — alertes actives, toutes les trente secondes ;</li>
+ *   <li>{@code heartbeat} — maintien de connexion, toutes les vingt-cinq secondes.</li>
+ * </ul>
+ *
+ * <p>Le registre des clients est purgé de deux façons : par les rappels de
+ * fin, d'expiration et d'erreur de chaque émetteur, et par la détection d'une
+ * écriture en échec lors d'une diffusion.</p>
  */
 @Service
 @Slf4j
 public class SsePublisher {
 
+    /** Source des traitements en cours diffusés périodiquement. */
     private final DashboardService dashboardService;
+
+    /** Source des alertes actives diffusées périodiquement. */
     private final AlertService     alertService;
+
+    /** Sérialiseur JSON des charges utiles émises. */
     private final ObjectMapper objectMapper;
 
+    /**
+     * Clients abonnés, indexés par identifiant de connexion. La carte est
+     * concurrente : les diffusions planifiées et les abonnements HTTP y
+     * accèdent simultanément.
+     */
     private final Map<Long, SseEmitter> clients = new ConcurrentHashMap<>();
+
+    /** Générateur d'identifiants de connexion. */
     private final AtomicLong idSeq   = new AtomicLong();
 
+    /**
+     * Construit le diffuseur.
+     *
+     * @param objectMapper     sérialiseur JSON configuré par Spring Boot
+     * @param dashboardService source des traitements en cours
+     * @param alertService     source des alertes actives
+     */
     public SsePublisher(ObjectMapper objectMapper, DashboardService dashboardService, AlertService alertService) {
         this.objectMapper     = objectMapper;
         this.dashboardService = dashboardService;
@@ -46,8 +73,16 @@ public class SsePublisher {
     // ── Abonnement ───────────────────────────────────────────────────────────
 
     /**
-     * Enregistre un nouveau client SSE et retourne son emitter.
-     * Timeout = 5 minutes ; le client se reconnecte automatiquement via EventSource.
+     * Abonne un nouveau client au flux.
+     *
+     * <p>L'émetteur expire au bout de cinq minutes : {@code EventSource}
+     * rétablit alors la connexion de lui-même, ce qui évite de conserver
+     * indéfiniment des connexions oubliées.</p>
+     *
+     * <p>Un événement {@code connected} est émis immédiatement ; si son envoi
+     * échoue, le client est retiré sans que l'appel échoue pour autant.</p>
+     *
+     * @return l'émetteur à retourner au client HTTP
      */
     public SseEmitter subscribe() {
         long clientId    = idSeq.incrementAndGet();
@@ -83,7 +118,13 @@ public class SsePublisher {
 
     // ── Broadcast périodique ─────────────────────────────────────────────────
 
-    /** Broadcast des jobs live toutes les 10 secondes. */
+    /**
+     * Diffuse les traitements en cours, toutes les dix secondes.
+     *
+     * <p>Aucune requête n'est émise en l'absence de client. Toute erreur est
+     * absorbée : une indisponibilité passagère de la base ne doit pas
+     * interrompre la planification.</p>
+     */
     @Scheduled(fixedDelay = 10_000)
     public void broadcastLiveJobs() {
         if (clients.isEmpty()) return;
@@ -95,7 +136,12 @@ public class SsePublisher {
         }
     }
 
-    /** Broadcast des alertes actives toutes les 30 secondes. */
+    /**
+     * Diffuse les alertes actives, toutes les trente secondes.
+     *
+     * <p>Comme pour les traitements, l'absence de client court-circuite le
+     * traitement et les erreurs sont absorbées.</p>
+     */
     @Scheduled(fixedDelay = 30_000)
     public void broadcastAlerts() {
         if (clients.isEmpty()) return;
@@ -106,7 +152,12 @@ public class SsePublisher {
         }
     }
 
-    /** Heartbeat toutes les 25 secondes (évite le timeout des proxies). */
+    /**
+     * Émet un battement de cœur, toutes les vingt-cinq secondes.
+     *
+     * <p>Maintient la connexion ouverte : sans trafic, les mandataires
+     * intermédiaires la fermeraient d'eux-mêmes.</p>
+     */
     @Scheduled(fixedDelay = 25_000)
     public void heartbeat() {
         if (clients.isEmpty()) return;
@@ -115,12 +166,31 @@ public class SsePublisher {
 
     // ── Broadcast ponctuel (appelé par d'autres services) ───────────────────
 
+    /**
+     * Diffuse un événement ponctuel, hors cadence planifiée.
+     *
+     * <p>Destiné aux autres services souhaitant notifier le tableau de bord
+     * sans attendre la prochaine diffusion.</p>
+     *
+     * @param eventType nom de l'événement, tel qu'écouté côté client
+     * @param data      charge utile, sérialisée en JSON
+     */
     public void publishJobEvent(String eventType, Object data) {
         broadcast(eventType, data);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
+    /**
+     * Émet un événement vers tous les clients abonnés.
+     *
+     * <p>Un échec de sérialisation annule la diffusion sans lever
+     * d'exception. Les clients dont l'écriture échoue sont réputés déconnectés
+     * et retirés du registre.</p>
+     *
+     * @param eventName nom de l'événement
+     * @param data      charge utile, sérialisée en JSON
+     */
     private void broadcast(String eventName, Object data) {
         if (clients.isEmpty()) return;
         String json;

@@ -13,23 +13,51 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Couche analytique métier .
+ * Couche analytique métier alimentant les quatre pages du module : Synthèse,
+ * Flux, Clients et Créances.
  *
- * Chaque KPI est comparé, quand c'est possible, à la période N-1
- * (même logique que les rapports « Évol. vs A-1 » des analystes).
+ * <p>Chaque indicateur est, lorsque c'est possible, comparé à la même période
+ * de l'année précédente, selon la logique des rapports « évolution vs A-1 »
+ * attendus par les analystes.</p>
+ *
+ * <p><strong>Disponibilité progressive.</strong> Les indicateurs qui reposent
+ * sur une colonne non encore extraite retournent {@code null} ou une liste
+ * vide plutôt que d'échouer. Le {@code null} porte donc un sens précis :
+ * « donnée indisponible », à distinguer de la valeur zéro.</p>
+ *
+ * <p><strong>Arrondis.</strong> Les pourcentages et montants moyens sont
+ * arrondis au dixième, pour éviter d'afficher une précision que la qualité
+ * des données ne justifie pas.</p>
+ *
+ * <p><strong>Mise en cache.</strong> Toutes les méthodes coûteuses sont
+ * mises en cache cinq minutes, la clé intégrant les paramètres de filtrage.
+ * Les appels internes entre méthodes de ce service contournent le cache,
+ * n'étant pas interceptés par le mandataire Spring.</p>
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class AnalyticsService {
 
-    /** Ajouter la constante dans CacheConfig et déclarer le cache (TTL conseillé : 5 min). */
+    /**
+     * Nom du cache des indicateurs analytiques, déclaré dans
+     * {@link wevioo.se.monitoringms.config.CacheConfig} avec une rétention de
+     * cinq minutes.
+     */
     public static final String CACHE_ANALYTICS = "analytics";
 
+    /** Accès aux requêtes analytiques sur les tables extraites de T24. */
     private final AnalyticsRepository repo;
 
     // ── Bandeau KPI (page Synthèse) ──────────────────────────────────────────
 
+    /**
+     * Calcule le bandeau d'indicateurs de la page Synthèse.
+     *
+     * @param year année à analyser ; {@code 0} pour tout l'historique, auquel
+     *             cas aucune comparaison à l'année précédente n'est tentée
+     * @return les indicateurs de synthèse
+     */
     @Cacheable(value = CACHE_ANALYTICS, key = "'summary-' + #year")
     public AnalyticsSummaryDto summary(int year) {
         long ftN  = repo.countTransfers(year);
@@ -52,6 +80,14 @@ public class AnalyticsService {
 
     // ── Page Flux : KPIs ─────────────────────────────────────────────────────
 
+    /**
+     * Calcule le bandeau d'indicateurs de la page Flux.
+     *
+     * @param year année à analyser ; {@code 0} pour tout l'historique
+     * @return les indicateurs de flux ; montants et devises restent à
+     *         {@code null} tant que les colonnes correspondantes ne sont pas
+     *         extraites
+     */
     @Cacheable(value = CACHE_ANALYTICS, key = "'flows-summary-' + #year")
     public FlowsSummaryDto flowsSummary(int year) {
         long   nbN      = repo.countTransfers(year);
@@ -75,13 +111,31 @@ public class AnalyticsService {
                 .build();
     }
 
-    /** Colonnes enrichies présentes / manquantes — pilote le panneau « à débloquer ». */
+    /**
+     * Dresse l'état des colonnes enrichies de la page Flux.
+     *
+     * <p>Pilote le panneau « à débloquer » du front, qui indique à
+     * l'utilisateur quelles extractions relancer pour obtenir les indicateurs
+     * manquants.</p>
+     *
+     * @return une entrée par colonne attendue, {@code true} si elle est extraite
+     */
     public Map<String, Boolean> flowsColumnsStatus() {
         return repo.ftEnrichedColumnsStatus();
     }
 
     // ── Évolution mensuelle N vs N-1 (volumes + montants) ────────────────────
 
+    /**
+     * Construit la série mensuelle des virements, comparée à l'année précédente.
+     *
+     * <p>La série compte toujours douze points : les mois sans opération sont
+     * remplis à zéro, ce qui évite au front d'avoir à combler les trous.</p>
+     *
+     * @param year année à analyser ; {@code 0} pour tout l'historique, auquel
+     *             cas les valeurs de l'année précédente restent à {@code null}
+     * @return les douze points de la série, de janvier à décembre
+     */
     @Cacheable(value = CACHE_ANALYTICS, key = "'monthly-' + #year")
     public List<MonthlyFlowDto> monthlyTransfers(int year) {
         Map<Integer, Long>   current    = indexByMonth(repo.monthlyTransfers(year));
@@ -106,16 +160,39 @@ public class AnalyticsService {
 
     // ── Page Flux : répartitions ─────────────────────────────────────────────
 
+    /**
+     * Répartit les virements par devise de débit.
+     *
+     * @param year année à analyser ; {@code 0} pour tout l'historique
+     * @return les tranches triées par part décroissante ; liste vide tant que
+     *         {@code DEBIT_CURRENCY} n'est pas extraite
+     */
     @Cacheable(value = CACHE_ANALYTICS, key = "'flows-currency-' + #year")
     public List<FlowSliceDto> flowsByCurrency(int year) {
         return toFlowSlices(repo.flowsByCurrency(year));
     }
 
+    /**
+     * Répartit les virements par type d'opération.
+     *
+     * @param year année à analyser ; {@code 0} pour tout l'historique
+     * @return les tranches triées par part décroissante ; liste vide tant que
+     *         {@code TRANSACTION_TYPE} n'est pas extraite
+     */
     @Cacheable(value = CACHE_ANALYTICS, key = "'flows-type-' + #year")
     public List<FlowSliceDto> flowsByType(int year) {
         return toFlowSlices(repo.flowsByType(year));
     }
 
+    /**
+     * Croise l'activité par mois et par jour de semaine.
+     *
+     * <p>Ne dépend d'aucune colonne enrichie : la date métier est reconstruite
+     * depuis l'identifiant T24.</p>
+     *
+     * @param year année à analyser ; {@code 0} pour tout l'historique
+     * @return les cellules renseignées ; les couples sans activité sont absents
+     */
     @Cacheable(value = CACHE_ANALYTICS, key = "'flows-heatmap-' + #year")
     public List<HeatmapCellDto> activityHeatmap(int year) {
         return repo.activityHeatmap(year).stream()
@@ -130,9 +207,16 @@ public class AnalyticsService {
     // ── Page Flux : insights automatiques ────────────────────────────────────
 
     /**
-     * Enseignements de la page Flux : devise dominante, type d'opération
-     * dominant, ticket moyen. Chaque insight n'apparaît que si la colonne
-     * qui le rend calculable a été extraite.
+     * Produit les enseignements de la page Flux : devise dominante, type
+     * d'opération dominant et montant moyen par opération.
+     *
+     * <p>Chaque enseignement n'apparaît que si la colonne qui le rend
+     * calculable a été extraite. Les tranches portant le libellé de
+     * remplacement {@code —} sont écartées : elles signalent une valeur
+     * manquante, non une catégorie réelle.</p>
+     *
+     * @param year année à analyser ; {@code 0} pour tout l'historique
+     * @return les enseignements disponibles, éventuellement aucun
      */
     @Cacheable(value = CACHE_ANALYTICS, key = "'flows-insights-' + #year")
     public List<InsightDto> flowsInsights(int year) {
@@ -178,6 +262,15 @@ public class AnalyticsService {
 
     // ── Page Clients : KPIs ──────────────────────────────────────────────────
 
+    /**
+     * Calcule le bandeau d'indicateurs de la page Clients.
+     *
+     * <p>La comparaison des entrées en relation à l'année précédente n'est
+     * tentée que si la donnée est disponible pour l'année courante.</p>
+     *
+     * @param year année à analyser ; {@code 0} pour tout l'historique
+     * @return les indicateurs clients
+     */
     @Cacheable(value = CACHE_ANALYTICS, key = "'customers-summary-' + #year")
     public CustomersSummaryDto customersSummary(int year) {
         Long newN  = repo.countNewCustomers(year);
@@ -200,19 +293,37 @@ public class AnalyticsService {
                 .build();
     }
 
-    /** Colonnes enrichies présentes / manquantes — pilote le panneau « à débloquer ». */
+    /**
+     * Dresse l'état des colonnes enrichies de la page Clients.
+     *
+     * @return une entrée par colonne attendue, {@code true} si elle est extraite
+     */
     public Map<String, Boolean> customersColumnsStatus() {
         return repo.customerEnrichedColumnsStatus();
     }
 
-    /** Années d'entrée en relation disponibles (filtre de la page Clients). */
+    /**
+     * Liste les années d'entrée en relation proposables en filtre.
+     *
+     * @return les années par ordre décroissant ; liste vide tant que la date
+     *         d'ouverture de compte n'est pas extraite
+     */
     public List<Integer> acquisitionYears() {
         return repo.acquisitionYears();
     }
 
     // ── Page Clients : démographie ───────────────────────────────────────────
 
-    /** Histogramme des âges par pas de 5 ans (labels « 40–44 », « 85 + »). */
+    /**
+     * Construit l'histogramme des âges par tranche de cinq ans.
+     *
+     * <p>Les libellés sont formés à partir de la borne basse renvoyée par la
+     * base : {@code 40–44} pour une tranche standard, {@code 85 +} pour la
+     * dernière, qui regroupe les âges élevés.</p>
+     *
+     * @return les tranches par âge croissant ; liste vide si aucun âge n'est
+     *         exploitable
+     */
     @Cacheable(value = CACHE_ANALYTICS, key = "'customers-histogram'")
     public List<BreakdownSliceDto> ageHistogram() {
         List<Map<String, Object>> rows = repo.ageHistogram();
@@ -226,7 +337,12 @@ public class AnalyticsService {
                 .collect(Collectors.toList());
     }
 
-    /** Répartition par génération (dérivée de l'année de naissance). */
+    /**
+     * Répartit les clients par génération, dérivée de l'année de naissance.
+     *
+     * @return les générations de la plus jeune à la plus ancienne ; liste vide
+     *         si aucune année de naissance n'est exploitable
+     */
     @Cacheable(value = CACHE_ANALYTICS, key = "'customers-generations'")
     public List<BreakdownSliceDto> generations() {
         List<Map<String, Object>> rows = repo.generations();
@@ -237,7 +353,18 @@ public class AnalyticsService {
                 .collect(Collectors.toList());
     }
 
-    /** Nouveaux clients par mois, N vs N-1 — vide tant que DATE_AC_OPND absente. */
+    /**
+     * Construit la série mensuelle des entrées en relation.
+     *
+     * <p>Contrairement aux autres séries, celle-ci retourne une liste vide
+     * plutôt que douze points à zéro lorsque la donnée est indisponible :
+     * l'appelant peut ainsi distinguer « colonne non extraite » de « aucune
+     * entrée en relation ».</p>
+     *
+     * @param year année à analyser ; {@code 0} pour tout l'historique
+     * @return les douze points de la série, ou une liste vide tant que la date
+     *         d'ouverture de compte n'est pas extraite
+     */
     @Cacheable(value = CACHE_ANALYTICS, key = "'customers-new-monthly-' + #year")
     public List<MonthlyFlowDto> newCustomersMonthly(int year) {
         List<Map<String, Object>> raw = repo.newCustomersMonthly(year);
@@ -260,7 +387,18 @@ public class AnalyticsService {
         return out;
     }
 
-    /** Segmentation selon une dimension autorisée (secteur, nationalité, genre…). */
+    /**
+     * Segmente les clients selon une dimension autorisée.
+     *
+     * <p>La segmentation est bornée aux douze valeurs les plus fréquentes ;
+     * les parts sont donc calculées sur ce sous-ensemble et non sur
+     * l'effectif total.</p>
+     *
+     * @param dimension clé de dimension : {@code sector}, {@code nationality},
+     *                  {@code gender}, {@code target} ou {@code status}
+     * @return les tranches par effectif décroissant ; liste vide si la
+     *         dimension est inconnue ou sa colonne non extraite
+     */
     @Cacheable(value = CACHE_ANALYTICS, key = "'customers-breakdown-' + #dimension")
     public List<BreakdownSliceDto> customersBreakdown(String dimension) {
         List<Map<String, Object>> rows = repo.customerBreakdown(dimension, 12);
@@ -271,7 +409,14 @@ public class AnalyticsService {
                 .collect(Collectors.toList());
     }
 
-    /** Dimensions de segmentation dont la colonne est déjà extraite. */
+    /**
+     * Liste les dimensions de segmentation client réellement exploitables.
+     *
+     * <p>Permet au front de ne proposer que les dimensions dont la colonne a
+     * été extraite.</p>
+     *
+     * @return les clés de dimension disponibles, triées alphabétiquement
+     */
     public List<String> availableCustomerDimensions() {
         return AnalyticsRepository.CUSTOMER_DIMENSIONS.entrySet().stream()
                 .filter(e -> repo.hasColumn(AnalyticsRepository.CUS_TABLE, e.getValue()))
@@ -283,9 +428,15 @@ public class AnalyticsService {
     // ── Page Clients : insights automatiques ────────────────────────────────
 
     /**
-     * Enseignements de la page Clients : génération dominante, cœur actif
-     * (part des 25–54 ans) et, selon les données, pic d'acquisition ou part
-     * des dossiers issus de la migration initiale.
+     * Produit les enseignements de la page Clients.
+     *
+     * <p>Trois enseignements au plus : la génération dominante, la part du
+     * cœur actif — les 25 à 54 ans — et, selon les données disponibles, le
+     * pic d'acquisition ou, à défaut, la part des dossiers issus de la
+     * migration initiale.</p>
+     *
+     * @param year année à analyser ; {@code 0} pour tout l'historique
+     * @return les enseignements disponibles, éventuellement aucun
      */
     @Cacheable(value = CACHE_ANALYTICS, key = "'customers-insights-' + #year")
     public List<InsightDto> customersInsights(int year) {
@@ -340,6 +491,15 @@ public class AnalyticsService {
 
     // ── Page Créances : KPIs ─────────────────────────────────────────────────
 
+    /**
+     * Calcule le bandeau d'indicateurs de la page Créances.
+     *
+     * <p>Le taux de recouvrement n'est produit que si les deux montants sont
+     * disponibles et que le montant facturé est strictement positif.</p>
+     *
+     * @param year année à analyser ; {@code 0} pour tout l'historique
+     * @return les indicateurs de facturation
+     */
     @Cacheable(value = CACHE_ANALYTICS, key = "'billing-summary-' + #year")
     public BillingSummaryDto billingSummary(int year) {
         long   nbN      = repo.countBills(year);
@@ -363,19 +523,36 @@ public class AnalyticsService {
                 .build();
     }
 
-    /** Colonnes enrichies présentes / manquantes — pilote le panneau « à débloquer ». */
+    /**
+     * Dresse l'état des colonnes enrichies de la page Créances.
+     *
+     * @return une entrée par champ attendu, {@code true} s'il est extrait
+     */
     public Map<String, Boolean> billingColumnsStatus() {
         return repo.billingEnrichedColumnsStatus();
     }
 
-    /** Années de facturation disponibles (filtre de la page Créances). */
+    /**
+     * Liste les années de facturation proposables en filtre.
+     *
+     * @return les années par ordre décroissant
+     */
     public List<Integer> billYears() {
         return repo.billYears();
     }
 
     // ── Page Créances : évolution & segmentation ─────────────────────────────
 
-    /** Factures par mois, N vs N-1, avec montants facturés si extraits. */
+    /**
+     * Construit la série mensuelle des factures, comparée à l'année précédente.
+     *
+     * <p>Les volumes sont toujours disponibles, la date d'émission étant
+     * reconstruite depuis l'identifiant T24 ; les montants ne le sont que si
+     * la colonne correspondante est extraite.</p>
+     *
+     * @param year année à analyser ; {@code 0} pour tout l'historique
+     * @return les douze points de la série, de janvier à décembre
+     */
     @Cacheable(value = CACHE_ANALYTICS, key = "'billing-monthly-' + #year")
     public List<MonthlyFlowDto> billingMonthly(int year) {
         Map<Integer, Long>   current   = indexByMonth(repo.monthlyBills(year));
@@ -398,13 +575,27 @@ public class AnalyticsService {
         return out;
     }
 
-    /** Segmentation des créances (aging, règlement, statut, type, mode de paiement). */
+    /**
+     * Segmente les créances selon une dimension autorisée.
+     *
+     * <p>Bornée aux douze valeurs les plus fréquentes.</p>
+     *
+     * @param dimension clé de dimension : {@code aging}, {@code settle},
+     *                  {@code status}, {@code type} ou {@code method}
+     * @param year      année à analyser ; {@code 0} pour tout l'historique
+     * @return les tranches triées par part décroissante ; liste vide si la
+     *         dimension est inconnue ou son satellite absent
+     */
     @Cacheable(value = CACHE_ANALYTICS, key = "'billing-breakdown-' + #dimension + '-' + #year")
     public List<FlowSliceDto> billingBreakdown(String dimension, int year) {
         return toFlowSlices(repo.billingBreakdown(dimension, year, 12));
     }
 
-    /** Dimensions de segmentation des créances dont la colonne est déjà extraite. */
+    /**
+     * Liste les dimensions de segmentation des créances réellement exploitables.
+     *
+     * @return les clés de dimension disponibles, triées alphabétiquement
+     */
     public List<String> availableBillingDimensions() {
         return AnalyticsRepository.BILLING_DIMENSIONS.entrySet().stream()
                 .filter(e -> repo.hasColumn(AnalyticsRepository.BILL_TABLE, e.getValue()))
@@ -416,9 +607,14 @@ public class AnalyticsService {
     // ── Page Créances : insights automatiques ────────────────────────────────
 
     /**
-     * Enseignements de la page Créances : mois record de facturation
-     * (calculable dès aujourd'hui via les IDs AABILLyyddd…), part des
-     * factures réglées et délai moyen de règlement après enrichissement.
+     * Produit les enseignements de la page Créances.
+     *
+     * <p>Le mois record de facturation est calculable sans extraction
+     * enrichie ; la part des factures réglées et le délai moyen de règlement
+     * n'apparaissent qu'après enrichissement.</p>
+     *
+     * @param year année à analyser ; {@code 0} pour tout l'historique
+     * @return les enseignements disponibles, éventuellement aucun
      */
     @Cacheable(value = CACHE_ANALYTICS, key = "'billing-insights-' + #year")
     public List<InsightDto> billingInsights(int year) {
@@ -459,7 +655,19 @@ public class AnalyticsService {
         return out;
     }
 
-    /** Part des factures réglées (SETTLE_STATUS) — null tant qu'absente. */
+    /**
+     * Calcule la part des factures réglées.
+     *
+     * <p>Les statuts sont comparés par mot-clé, T24 employant plusieurs
+     * variantes ({@code PAID}, {@code REPAID}, {@code SETTLED},
+     * {@code PART.SETTLED}). Les formes négatives — {@code UNPAID},
+     * {@code UNSETTLED} — sont écartées en premier : elles contiennent les
+     * mêmes mots-clés et seraient sinon comptées comme des règlements.</p>
+     *
+     * @param year année à analyser ; {@code 0} pour tout l'historique
+     * @return la part en pourcentage, ou {@code null} tant que
+     *         {@code SETTLE_STATUS} n'est pas extrait
+     */
     private Double paidShare(int year) {
         List<Map<String, Object>> rows = repo.billingBreakdown("settle", year, 50);
         if (rows.isEmpty()) return null;
@@ -467,6 +675,8 @@ public class AnalyticsService {
         long paid = rows.stream()
                 .filter(r -> {
                     String label = String.valueOf(r.get("label")).toUpperCase();
+                    // UNPAID / UNSETTLED contiennent PAID / SETTLED : à exclure d'abord
+                    if (label.startsWith("UN") || label.contains("NOT")) return false;
                     // REPAID / PAID / SETTLED / PART.SETTLED comptent comme réglées
                     return label.contains("PAID") || label.contains("SETTLED");
                 })
@@ -476,6 +686,12 @@ public class AnalyticsService {
 
     // ── Répartitions (page Synthèse) ─────────────────────────────────────────
 
+    /**
+     * Répartit les clients en six tranches d'âge.
+     *
+     * @return les tranches de la plus jeune à la plus âgée ; liste vide si
+     *         aucun âge n'est exploitable
+     */
     @Cacheable(value = CACHE_ANALYTICS, key = "'pyramid'")
     public List<BreakdownSliceDto> agePyramid() {
         List<Map<String, Object>> rows = repo.agePyramid();
@@ -485,6 +701,12 @@ public class AnalyticsService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Classe les gestionnaires par taille de portefeuille.
+     *
+     * @param top nombre de gestionnaires à retourner
+     * @return les gestionnaires du plus gros portefeuille au plus petit
+     */
     @Cacheable(value = CACHE_ANALYTICS, key = "'officers-' + #top")
     public List<OfficerPerfDto> topOfficers(int top) {
         return repo.portfolioByOfficer(top).stream()
@@ -497,6 +719,12 @@ public class AnalyticsService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Répartit les créances par état de vieillissement, sans filtre d'année.
+     *
+     * @return les tranches par effectif décroissant ; liste vide tant que
+     *         {@code AGING_STATUS} n'est pas extrait
+     */
     @Cacheable(value = CACHE_ANALYTICS, key = "'aging'")
     public List<BreakdownSliceDto> billingAging() {
         List<Map<String, Object>> rows = repo.billingAging();
@@ -506,12 +734,27 @@ public class AnalyticsService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Liste les années de virement proposables en filtre.
+     *
+     * @return les années par ordre décroissant
+     */
     public List<Integer> availableYears() {
         return repo.transferYears();
     }
 
     // ── Insights (page Synthèse) ─────────────────────────────────────────────
 
+    /**
+     * Produit les enseignements de la page Synthèse.
+     *
+     * <p>Gestionnaire en tête, concentration du portefeuille sur les cinq
+     * premiers et mois de pic d'activité. Les deux premiers ne sont produits
+     * qu'en présence d'au moins un gestionnaire.</p>
+     *
+     * @param year année à analyser ; {@code 0} pour tout l'historique
+     * @return les enseignements disponibles, éventuellement aucun
+     */
     @Cacheable(value = CACHE_ANALYTICS, key = "'insights-' + #year")
     public List<InsightDto> insights(int year) {
         List<InsightDto> out = new ArrayList<>();
@@ -554,17 +797,34 @@ public class AnalyticsService {
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
+    /**
+     * Identifie la devise la plus utilisée.
+     *
+     * @param year année à analyser ; {@code 0} pour tout l'historique
+     * @return le code devise, ou {@code null} tant que {@code DEBIT_CURRENCY}
+     *         n'est pas extraite
+     */
     private String dominantCurrency(int year) {
         List<Map<String, Object>> currencies = repo.flowsByCurrency(year);
         return currencies.isEmpty() ? null : String.valueOf(currencies.get(0).get("label"));
     }
 
+    /**
+     * Convertit des lignes brutes en tranches de répartition.
+     *
+     * <p>La part est calculée sur les montants lorsqu'ils sont présents et que
+     * leur total est strictement positif. Sinon elle retombe sur le volume :
+     * un encours intégralement soldé donnerait zéro partout, ce qui
+     * n'apprendrait rien.</p>
+     *
+     * @param rows lignes portant les clés {@code label}, {@code nb} et
+     *             éventuellement {@code montant}
+     * @return les tranches triées par part décroissante
+     */
     private List<FlowSliceDto> toFlowSlices(List<Map<String, Object>> rows) {
         boolean hasAmounts = rows.stream().anyMatch(r -> r.get("montant") != null);
         double amountTotal = rows.stream().filter(r -> r.get("montant") != null)
                 .mapToDouble(r -> ((Number) r.get("montant")).doubleValue()).sum();
-        // Part sur les montants seulement s'ils sont significatifs ; sinon sur
-        // le volume (encours tous soldés => 0 partout n'apporte rien)
         boolean pctOnAmounts = hasAmounts && amountTotal > 0;
         double total = pctOnAmounts
                 ? amountTotal
@@ -588,6 +848,13 @@ public class AnalyticsService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Indexe des effectifs mensuels par numéro de mois.
+     *
+     * @param rows lignes portant les clés {@code mois} et {@code nb}
+     * @return la correspondance mois → effectif ; en cas de doublon, la
+     *         première occurrence est conservée
+     */
     private static Map<Integer, Long> indexByMonth(List<Map<String, Object>> rows) {
         return rows.stream().collect(Collectors.toMap(
                 r -> ((Number) r.get("mois")).intValue(),
@@ -595,6 +862,15 @@ public class AnalyticsService {
                 (a, b) -> a));
     }
 
+    /**
+     * Indexe des montants mensuels par numéro de mois.
+     *
+     * <p>Les lignes sans montant sont écartées, une carte vide signalant alors
+     * à l'appelant que les montants ne sont pas disponibles.</p>
+     *
+     * @param rows lignes portant les clés {@code mois} et {@code montant}
+     * @return la correspondance mois → montant
+     */
     private static Map<Integer, Double> indexAmounts(List<Map<String, Object>> rows) {
         return rows.stream()
                 .filter(r -> r.get("montant") != null)
@@ -604,16 +880,40 @@ public class AnalyticsService {
                         (a, b) -> a));
     }
 
+    /**
+     * Calcule l'évolution relative entre deux effectifs.
+     *
+     * @param current  valeur de la période courante
+     * @param previous valeur de la période précédente
+     * @return l'évolution en pourcentage arrondie au dixième, ou {@code null}
+     *         si la période précédente est vide — le rapport serait alors
+     *         indéfini
+     */
     private static Double delta(long current, long previous) {
         if (previous <= 0) return null;
         return round1(100.0 * (current - previous) / previous);
     }
 
+    /**
+     * Arrondit une valeur au dixième en préservant l'absence de valeur.
+     *
+     * @param v valeur à arrondir, éventuellement {@code null}
+     * @return la valeur arrondie, ou {@code null} si l'entrée l'était
+     */
     private static Double round1OrNull(Double v) {
         return v == null ? null : round1(v);
     }
 
-    /** Part des clientes — null si GENDER absente ou valeurs inexploitables. */
+    /**
+     * Calcule la part des clientes à partir de la répartition par genre.
+     *
+     * <p>Sont comptées comme féminines les valeurs commençant par {@code F},
+     * T24 employant indifféremment {@code F} et {@code FEMALE}.</p>
+     *
+     * @param genderRows lignes portant les clés {@code label} et {@code nb}
+     * @return la part en pourcentage, ou {@code null} si la répartition est
+     *         vide ou son effectif total nul
+     */
     private static Double femaleShare(List<Map<String, Object>> genderRows) {
         if (genderRows.isEmpty()) return null;
         long total = genderRows.stream()
@@ -624,11 +924,30 @@ public class AnalyticsService {
         return total == 0 ? null : round1(100.0 * female / total);
     }
 
+    /**
+     * Calcule l'évolution relative entre deux montants.
+     *
+     * <p>Pendant de {@link #delta(long, long)} pour des valeurs nullables :
+     * un montant absent d'un côté rend la comparaison impossible.</p>
+     *
+     * @param current  montant de la période courante
+     * @param previous montant de la période précédente
+     * @return l'évolution en pourcentage arrondie au dixième, ou {@code null}
+     *         si l'un des montants manque ou si le précédent n'est pas positif
+     */
     private static Double deltaAmount(Double current, Double previous) {
         if (current == null || previous == null || previous <= 0) return null;
         return round1(100.0 * (current - previous) / previous);
     }
 
+    /**
+     * Construit une tranche de répartition en calculant sa part.
+     *
+     * @param label libellé de la tranche
+     * @param value effectif de la tranche
+     * @param total effectif total servant de base au calcul
+     * @return la tranche, de part nulle si le total l'est
+     */
     private static BreakdownSliceDto slice(String label, long value, long total) {
         return BreakdownSliceDto.builder()
                 .label(label)
@@ -637,6 +956,16 @@ public class AnalyticsService {
                 .build();
     }
 
+    /**
+     * Arrondit une valeur au dixième.
+     *
+     * <p>Arrondi appliqué uniformément aux pourcentages et montants moyens du
+     * service, la qualité des données ne justifiant pas davantage de
+     * précision.</p>
+     *
+     * @param v valeur à arrondir
+     * @return la valeur arrondie au dixième
+     */
     private static double round1(double v) {
         return Math.round(v * 10.0) / 10.0;
     }

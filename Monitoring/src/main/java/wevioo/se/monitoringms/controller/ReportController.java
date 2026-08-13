@@ -21,8 +21,15 @@ import wevioo.se.monitoringms.service.ReportService;
 @Tag(name = "Rapports", description = "Rapports journaliers et hebdomadaires du processus T24")
 public class ReportController {
 
+    /** Service de génération des rapports. */
     private final ReportService reportService;
 
+    /**
+     * Retourne le rapport journalier consolidé.
+     *
+     * @return les indicateurs du jour et des sept derniers jours, la
+     *         réconciliation, les états SLA et les alertes actives
+     */
     @GetMapping("/daily")
     @Operation(summary = "Rapport journalier",
             description = "Indicateurs du jour et des 7 derniers jours, réconciliation Oracle/SQL Server, statut SLA et alertes actives.")
@@ -30,6 +37,12 @@ public class ReportController {
         return ResponseEntity.ok(reportService.generateDailyReport());
     }
 
+    /**
+     * Retourne le rapport hebdomadaire.
+     *
+     * @return les tendances de la semaine, l'écart estimé face à la semaine
+     *         précédente et la table la plus volumineuse
+     */
     @GetMapping("/weekly")
     @Operation(summary = "Rapport hebdomadaire",
             description = "Tendances 7 jours, comparaison semaine précédente, top table par volume.")
