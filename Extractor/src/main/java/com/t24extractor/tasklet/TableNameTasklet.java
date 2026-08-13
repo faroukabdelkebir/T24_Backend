@@ -14,8 +14,21 @@ import org.springframework.stereotype.Component;
 import java.util.NoSuchElementException;
 
 /**
- * Ce tasklet sert à requeter les noms des tables T24 sur la base de données (Oracle)
- * La logique de requete se commence par determiner la classification de la table T24 si elle est F ou FBNK, et se termine par la requête sur TAFJ_VOC
+ * Résout le nom physique Oracle d'une table T24 et son mode de stockage.
+ *
+ * <p>T24 ne stocke pas ses tables sous leur nom fonctionnel. La résolution se
+ * fait en deux temps :
+ * <ol>
+ *   <li>la classification (F_FILE_CONTROL) donne le préfixe, {@code F} ou
+ *       {@code FBNK} — d'où {@code CUSTOMER} → {@code FBNK.CUSTOMER} ;</li>
+ *   <li>TAFJ_VOC traduit ce nom qualifié en table Oracle réelle
+ *       ({@code FBNK_CUSTOMER}) et indique son mode de stockage.</li>
+ * </ol>
+ *
+ * <p>Écrit dans le contexte de job {@code Table_Name} et {@code Type} ; ce
+ * dernier détermine si la suite du flow lira du XML ou du BLOB.
+ *
+ * @see com.t24extractor.model.TafjVoc
  */
 @Slf4j
 @Component
@@ -33,6 +46,13 @@ public class TableNameTasklet implements Tasklet {
     @Setter
     String t24TableName;
 
+    /**
+     * {@inheritDoc}
+     *
+     * @return toujours {@link RepeatStatus#FINISHED}
+     * @throws NoSuchElementException si TAFJ_VOC ne connaît pas la table :
+     *         poursuivre reviendrait à interroger une table Oracle inexistante
+     */
     @Override
     public RepeatStatus execute(@NonNull StepContribution contribution, ChunkContext chunkContext) throws Exception {
 

@@ -7,6 +7,12 @@ import org.springframework.data.relational.core.mapping.Table;
 import static com.t24extractor.commons.Constants.STATS;
 
 
+/**
+ * Volumétrie d'une exécution, pour rapprocher la source de la cible.
+ *
+ * <p>Comparer le compte lu sur Oracle et le compte écrit en BI permet de
+ * détecter une extraction partielle.
+ */
 @Table(value = STATS)
 public class Stats{
 

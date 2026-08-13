@@ -41,6 +41,18 @@ import javax.sql.DataSource;
         transactionManagerRef = "t24TransactionManager"
 )
 
+/**
+ * Pile d'accès à la base T24 (Oracle), source de l'extraction.
+ *
+ * <p>Symétrique de {@link BIDataSourceConfiguration}, mais non {@code @Primary} :
+ * chaque bean doit être réclamé explicitement par son qualificateur
+ * ({@code t24}, {@code jdbcTemplateT24}, {@code t24TransactionManager}), ce qui
+ * évite qu'une injection par défaut ne vise Oracle par mégarde.
+ *
+ * <p>Seuls les dictionnaires T24 sont mappés en entités ; les données métier
+ * sont lues par requêtes directes, leur structure n'étant connue qu'à
+ * l'exécution.
+ */
 public class T24DataSourceConfiguration {
 
     @Bean

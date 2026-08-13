@@ -34,6 +34,33 @@ import java.util.stream.Collectors;
 
 import static com.t24extractor.commons.Constants.*;
 
+/**
+ * Aligne la table BI sur le schéma attendu avant toute écriture de données.
+ *
+ * <p>Étape charnière du job : elle garantit que la table cible existe, qu'elle
+ * porte exactement les colonnes qui seront insérées, et publie les artefacts
+ * dont dépend le reste du traitement.
+ *
+ * <h2>Déroulement</h2>
+ * <ol>
+ *   <li>création de la table cible si elle n'existe pas ;</li>
+ *   <li>table inconnue de SCHEMA_SOURCE — le job s'arrête sur le statut
+ *       {@code NEW_TABLE}, faute de schéma exploitable ;</li>
+ *   <li>application des changements en attente dans SCHEMA_SOURCE_AUDIT
+ *       (ALTER TABLE, index, métadonnées multivaluées), puis purge de l'audit ;</li>
+ *   <li>publication du dictionnaire nettoyé, de la liste des colonnes et de
+ *       l'INSERT.</li>
+ * </ol>
+ *
+ * <h2>Cohérence des artefacts</h2>
+ * {@code sysFieldOds}, {@code COLUMNS} et {@code SQL_QUERY} sont tous dérivés du
+ * même ensemble de colonnes, dans un {@code LinkedHashSet} partagé. C'est ce qui
+ * garantit que l'ordre des colonnes et celui des paramètres de l'INSERT ne
+ * peuvent pas diverger.
+ *
+ * @see com.t24extractor.model.SchemaSourceAudit
+ * @see com.t24extractor.bi_sync.ops.SqlServerOps
+ */
 @Component
 @Slf4j
 public class BISyncTasklet implements AbstractBISyncTasklet, Tasklet {
@@ -78,6 +105,12 @@ public class BISyncTasklet implements AbstractBISyncTasklet, Tasklet {
     @Setter
     String colonneRef;
 
+    /**
+     * {@inheritDoc}
+     *
+     * @return toujours {@link RepeatStatus#FINISHED} ; l'arrêt sur table inconnue
+     *         passe par le statut de sortie {@code NEW_TABLE}
+     */
     @Override
     public RepeatStatus execute(StepContribution stepContribution, ChunkContext chunkContext) throws Exception {
 
@@ -201,8 +234,7 @@ public class BISyncTasklet implements AbstractBISyncTasklet, Tasklet {
 
 
     /**
-     * @param tableName Table BI
-     * @return True/False
+     * {@inheritDoc}
      */
     @Override
     public boolean statusSchemaSource(String tableName) {
@@ -210,8 +242,7 @@ public class BISyncTasklet implements AbstractBISyncTasklet, Tasklet {
     }
 
     /**
-     * @param tableName
-     * @param schemaSourceList
+     * {@inheritDoc}
      */
     @Override
     public void loadMetaDataTable(String tableName, @NotNull List<SchemaSource> schemaSourceList) {
@@ -223,16 +254,32 @@ public class BISyncTasklet implements AbstractBISyncTasklet, Tasklet {
         sqlOps.save(jdbcTemplate, metaList);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void checkSchemaUpdate(String tableName) {
         schemaSourceAuditRepository.findAllBySourceTableName(tableName);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Sans effet : les opérations différées sont enregistrées directement par
+     * {@link #updateIndex(String, int, String)}.
+     */
     @Override
     public void scheduleOp(String tableName) {
         //
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Au-delà de dix millions de lignes, la création est enregistrée dans
+     * SCHEDULED_OPS au lieu d'être exécutée : un index créé en ligne
+     * verrouillerait la table pendant toute l'extraction.
+     */
     @Override
     public void updateIndex(String tableName, int diff, String column) {
         if (diff == 1) {
@@ -245,6 +292,9 @@ public class BISyncTasklet implements AbstractBISyncTasklet, Tasklet {
         if (diff == -1) sqlOps.dropIndex(jdbcTemplate, column);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void updateColumn(String table, int diff, String column, String dataType) {
         if (diff == 1) {
@@ -255,8 +305,11 @@ public class BISyncTasklet implements AbstractBISyncTasklet, Tasklet {
     }
 
     /**
-     * @param tableName Nom de la table t24 sur BI
-     * @param ss        Le dictionnaire du STANDARD.SELETCION crée dans le step STANDARD_SELECTION
+     * {@inheritDoc}
+     *
+     * <p>Sans effet : SCHEMA_SOURCE est alimentée en amont par l'IHM
+     * d'administration, pas par le batch. Le point d'extension est conservé pour
+     * un éventuel auto-enregistrement des nouvelles tables.
      */
     @Override
     public void loadSchemaSource(String tableName, @NotNull JSONObject ss) {
@@ -264,6 +317,9 @@ public class BISyncTasklet implements AbstractBISyncTasklet, Tasklet {
         // alimenting table in mysqlServer ( the data already exist )
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public JSONObject ssMapClean(String tableName, JSONObject ssMap) {
         List<SchemaSource> list = schemaSourceRepository.findAll(tableName);
@@ -280,6 +336,11 @@ public class BISyncTasklet implements AbstractBISyncTasklet, Tasklet {
         return newSSMap;
     }
 
+    /**
+     * @param jdbcTemplate accès à la base BI
+     * @param tableName    table à compter
+     * @return le nombre de lignes, d'après les statistiques SQL Server
+     */
     public Long countTable(JdbcTemplate jdbcTemplate, String tableName) {
         return sqlOps.countAll(jdbcTemplate, tableName);
     }

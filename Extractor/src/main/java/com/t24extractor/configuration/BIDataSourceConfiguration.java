@@ -41,6 +41,18 @@ import java.util.Objects;
         transactionManagerRef = "biTransactionManager"
 )
 
+/**
+ * Pile d'accès à la base BI (SQL Server), cible de l'extraction.
+ *
+ * <p>Déclarée {@code @Primary} : c'est la base par défaut de l'application, y
+ * compris pour les métadonnées Spring Batch. Chaque bean a son pendant côté
+ * Oracle dans {@link T24DataSourceConfiguration} ; les deux piles sont
+ * volontairement disjointes pour qu'un dialecte ou une transaction ne puisse
+ * pas être appliqué à la mauvaise base.
+ *
+ * <p>L'auto-commit est activé car les instructions DDL générées à l'étape
+ * BI_SYNC (CREATE, ALTER) s'exécutent hors des transactions du batch.
+ */
 public class BIDataSourceConfiguration {
 
     @Bean

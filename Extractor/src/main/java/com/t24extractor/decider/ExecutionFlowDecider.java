@@ -8,11 +8,30 @@ import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.job.flow.FlowExecutionStatus;
 import org.springframework.batch.core.job.flow.JobExecutionDecider;
 
+/**
+ * Choisit la branche de traitement à emprunter après la préparation.
+ *
+ * <p>Le statut renvoyé est composé à partir du mode de stockage et du mode de
+ * chargement : {@code Manager}, {@code BLOB-Manager},
+ * {@code Incremental-ID-Manager} ou {@code BLOB-Incremental-ID-Manager}.
+ *
+ * <p>Cas particulier : si le comptage ({@code COUNT}) est nul, le statut
+ * {@code EXIT} termine le job sans lancer d'extraction.
+ *
+ * <p>Le type est lu en priorité dans le contexte d'exécution (où
+ * STANDARD.SELECTION a pu le corriger d'après TAFJ) et, à défaut, dans les
+ * paramètres du job.
+ */
 @StepScope
-public class ExecutionFlowDecider implements JobExecutionDecider 
+public class ExecutionFlowDecider implements JobExecutionDecider
 {
 	private static final Logger LOG = LoggerFactory.getLogger(ExecutionFlowDecider.class) ;
 
+	/**
+	 * {@inheritDoc}
+	 *
+	 * @return le nom de la branche à suivre, ou {@code EXIT} s'il n'y a rien à extraire
+	 */
 	@Override
 	public FlowExecutionStatus decide(JobExecution jobExecution, StepExecution stepExecution)
 	{

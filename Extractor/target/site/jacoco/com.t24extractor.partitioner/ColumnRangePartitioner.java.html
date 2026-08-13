@@ -7,46 +7,63 @@ import java.util.HashMap;
 import java.util.Map;
 
 
-<span class="fc" id="L10">public class ColumnRangePartitioner implements Partitioner</span>
+/**
+ * Découpe la lecture en plages contiguës de numéros de ligne.
+ *
+ * &lt;p&gt;Utilisé pour les tables lues au travers d'une vue, où chaque ligne porte un
+ * {@code rowNumber} : chaque worker reçoit les bornes {@code minValue} et
+ * {@code maxValue} de sa plage.
+ *
+ * &lt;p&gt;Suppose que le nombre total de lignes ait été publié sous la clé
+ * {@code COUNT}.
+ */
+<span class="fc" id="L20">public class ColumnRangePartitioner implements Partitioner</span>
 {
 
     @Value(&quot;#{jobExecutionContext['COUNT']}&quot;)
     int count;
-    
+
+    /**
+     * {@inheritDoc}
+     *
+     * @param gridSize nombre de workers souhaité
+     * @return une partition par plage ; la dernière est tronquée au nombre réel
+     *         de lignes
+     */
     @Override
     public Map&lt;String, ExecutionContext&gt; partition(int gridSize)
     {
-<span class="fc" id="L19">        int min = 1;</span>
-<span class="fc" id="L20">        int max = count;</span>
-<span class="fc" id="L21">        int targetSize = (max - min) / gridSize + 1;</span>
+<span class="fc" id="L36">        int min = 1;</span>
+<span class="fc" id="L37">        int max = count;</span>
+<span class="fc" id="L38">        int targetSize = (max - min) / gridSize + 1;</span>
 
-<span class="fc" id="L23">        Map&lt;String, ExecutionContext&gt; result = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L40">        Map&lt;String, ExecutionContext&gt; result = new HashMap&lt;&gt;();</span>
         
-<span class="fc" id="L25">        int number = 0;</span>
-<span class="fc" id="L26">        int start = min;</span>
-<span class="fc" id="L27">        int end = start + targetSize - 1;</span>
+<span class="fc" id="L42">        int number = 0;</span>
+<span class="fc" id="L43">        int start = min;</span>
+<span class="fc" id="L44">        int end = start + targetSize - 1;</span>
 
-<span class="fc bfc" id="L29" title="All 2 branches covered.">        while (start &lt;= max)</span>
+<span class="fc bfc" id="L46" title="All 2 branches covered.">        while (start &lt;= max)</span>
         {
-<span class="fc" id="L31">            ExecutionContext value = new ExecutionContext();</span>
+<span class="fc" id="L48">            ExecutionContext value = new ExecutionContext();</span>
             
-<span class="fc" id="L33">            result.put(&quot;partition&quot; + number, value);</span>
+<span class="fc" id="L50">            result.put(&quot;partition&quot; + number, value);</span>
 
-<span class="fc bfc" id="L35" title="All 2 branches covered.">            if (end &gt;= max)</span>
+<span class="fc bfc" id="L52" title="All 2 branches covered.">            if (end &gt;= max)</span>
             {
-<span class="fc" id="L37">                end = max;</span>
+<span class="fc" id="L54">                end = max;</span>
             }
             
-<span class="fc" id="L40">            value.putInt(&quot;minValue&quot;, start);</span>
-<span class="fc" id="L41">            value.putInt(&quot;maxValue&quot;, end);</span>
+<span class="fc" id="L57">            value.putInt(&quot;minValue&quot;, start);</span>
+<span class="fc" id="L58">            value.putInt(&quot;maxValue&quot;, end);</span>
             
-<span class="fc" id="L43">            start += targetSize;</span>
-<span class="fc" id="L44">            end += targetSize;</span>
+<span class="fc" id="L60">            start += targetSize;</span>
+<span class="fc" id="L61">            end += targetSize;</span>
             
-<span class="fc" id="L46">            number++;</span>
-<span class="fc" id="L47">        }</span>
+<span class="fc" id="L63">            number++;</span>
+<span class="fc" id="L64">        }</span>
 
-<span class="fc" id="L49">        return result;</span>
+<span class="fc" id="L66">        return result;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

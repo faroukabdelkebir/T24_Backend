@@ -14,12 +14,27 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
+/**
+ * Point d'entrée de l'extracteur T24.
+ *
+ * <p>Au démarrage, le fuseau est forcé à GMT+1 : les dates T24 sont manipulées
+ * sans zone, et un décalage déplacerait la frontière de journée d'extraction.
+ *
+ * <p>Chaque instance s'enregistre auprès du registre de services sous un nom
+ * horodaté unique, plusieurs extracteurs pouvant tourner de front.
+ *
+ * @see com.t24extractor.configuration.BatchConfiguration
+ */
 @EnableDiscoveryClient
 @SpringBootApplication
 @EnableScheduling
 public class ExtractorApplication
 {
-	public static void main(String[] args) 
+	/**
+	 * @param args arguments de ligne de commande, complétés par le nom
+	 *             d'instance généré
+	 */
+	public static void main(String[] args)
 	{
 		TimeZone timezone = TimeZone.getTimeZone("GMT+1");
 		TimeZone.setDefault(timezone);

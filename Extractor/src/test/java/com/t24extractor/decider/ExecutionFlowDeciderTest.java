@@ -37,6 +37,42 @@ class ExecutionFlowDeciderTest {
     }
 
     @Test
+    void selectsPlainManagerForXmlFullLoad() {
+        JobParameters parameters = new JobParametersBuilder()
+                .addString("Type", "X")
+                .addString("Chargement", "Full")
+                .toJobParameters();
+        BatchTestContext context = BatchTestContext.create(parameters);
+        context.jobExecution().getExecutionContext().putInt("COUNT", 1);
+
+        assertEquals("Manager",
+                new ExecutionFlowDecider().decide(context.jobExecution(), context.stepExecution()).getName());
+    }
+
+    @Test
+    void selectsIncrementalManagerWithoutBlobPrefix() {
+        JobParameters parameters = new JobParametersBuilder()
+                .addString("Type", "X")
+                .addString("Chargement", "Incremental-id")
+                .toJobParameters();
+        BatchTestContext context = BatchTestContext.create(parameters);
+        context.jobExecution().getExecutionContext().putInt("COUNT", 1);
+
+        assertEquals("Incremental-ID-Manager",
+                new ExecutionFlowDecider().decide(context.jobExecution(), context.stepExecution()).getName());
+    }
+
+    @Test
+    void missingParametersDefaultToThePlainManager() {
+        BatchTestContext context = BatchTestContext.create();
+        context.jobExecution().getExecutionContext().putInt("COUNT", 5);
+
+        // Ni Type ni Chargement fournis : le décideur ne doit pas échouer.
+        assertEquals("Manager",
+                new ExecutionFlowDecider().decide(context.jobExecution(), context.stepExecution()).getName());
+    }
+
+    @Test
     void executionContextTypeOverridesParameter() {
         JobParameters parameters = new JobParametersBuilder()
                 .addString("Type", "X")

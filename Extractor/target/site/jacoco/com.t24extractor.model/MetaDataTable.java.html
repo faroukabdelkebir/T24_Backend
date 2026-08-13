@@ -5,8 +5,22 @@ import org.springframework.data.relational.core.mapping.Table;
 
 import static com.t24extractor.commons.Constants.T24_METADATA;
 
+/**
+ * Déclaration d'un champ multivalué éclaté en table satellite.
+ *
+ * &lt;p&gt;Chaque champ multivalué d'une table BI donne lieu à une table
+ * {@code TABLE#CHAMP}. Cette entité en tient le registre, afin que les
+ * consommateurs BI sachent quelles tables satellites existent.
+ *
+ * &lt;p&gt;L'égalité par valeur est utilisée pour la suppression : désactiver une
+ * colonne supprime la métadonnée reconstruite à l'identique.
+ *
+ * @param tablename        table BI porteuse du champ
+ * @param multivalueFields nom du champ multivalué
+ * @param localref         {@code true} s'il s'agit d'un champ LOCAL.REF
+ */
 @Table(value = T24_METADATA)
-<span class="nc" id="L9">public record MetaDataTable(</span>
+<span class="fc" id="L23">public record MetaDataTable(</span>
         @Column(&quot;Table_Name&quot;) String tablename,
         @Column(&quot;MultiValueFields&quot;) String multivalueFields,
         @Column(&quot;LOCAL_REF&quot;) boolean localref) {

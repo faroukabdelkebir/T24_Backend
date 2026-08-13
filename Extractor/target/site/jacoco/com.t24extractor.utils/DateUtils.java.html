@@ -2,27 +2,41 @@
 
 import java.util.Date;
 
+/**
+ * Formatage des durées d'exécution pour les journaux.
+ */
 public  class DateUtils {
 
   private DateUtils() {
     /* This utility class should not be instantiated */
   }
 
+/**
+ * Écart entre deux instants, au format {@code HH:mm:ss}.
+ *
+ * &lt;p&gt;L'ordre des arguments est indifférent : la valeur absolue est retournée.
+ * Au-delà de 24 heures, le champ des heures dépasse 24 plutôt que de repartir
+ * de zéro.
+ *
+ * @param d1 première date
+ * @param d2 seconde date
+ * @return la durée écoulée, par exemple {@code 02:03:04}
+ */
 public static String differenceBetween(Date d1, Date d2) {
 	
 	long diff;
 
-<span class="fc bfc" id="L15" title="All 2 branches covered.">    if (d1.getTime() &gt; d2.getTime()) {</span>
-<span class="fc" id="L16">        diff = (int) (d1.getTime() - d2.getTime());</span>
+<span class="fc bfc" id="L29" title="All 2 branches covered.">    if (d1.getTime() &gt; d2.getTime()) {</span>
+<span class="fc" id="L30">        diff = (int) (d1.getTime() - d2.getTime());</span>
 
     } else
-<span class="fc" id="L19">        diff = (int) (d2.getTime() - d1.getTime());</span>
-<span class="fc" id="L20">	long timeDifference = diff / 1000;</span>
-<span class="fc" id="L21">    int h = (int) (timeDifference / (3600));</span>
-<span class="fc" id="L22">    int m = (int) ((timeDifference - (h * 3600)) / 60);</span>
-<span class="fc" id="L23">    int s = (int) (timeDifference - (h * 3600) - m * 60);</span>
+<span class="fc" id="L33">        diff = (int) (d2.getTime() - d1.getTime());</span>
+<span class="fc" id="L34">	long timeDifference = diff / 1000;</span>
+<span class="fc" id="L35">    int h = (int) (timeDifference / (3600));</span>
+<span class="fc" id="L36">    int m = (int) ((timeDifference - (h * 3600)) / 60);</span>
+<span class="fc" id="L37">    int s = (int) (timeDifference - (h * 3600) - m * 60);</span>
 
-<span class="fc" id="L25">    return String.format(&quot;%02d:%02d:%02d&quot;, h, m, s);</span>
+<span class="fc" id="L39">    return String.format(&quot;%02d:%02d:%02d&quot;, h, m, s);</span>
 }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

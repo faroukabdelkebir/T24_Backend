@@ -5,10 +5,21 @@ import org.springframework.jdbc.core.RowMapper;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
-public class XMLRowMapper implements RowMapper<T24Table> 
+/**
+ * Mappe une ligne {@code (RECID, XMLRECORD)} en {@link T24Table}.
+ *
+ * <p>Les colonnes sont lues par position, l'ordre étant fixé par la requête
+ * construite dans {@link com.t24extractor.tasklet.QueryTasklet}.
+ */
+public class XMLRowMapper implements RowMapper<T24Table>
 {
+    /**
+     * {@inheritDoc}
+     *
+     * @return l'enregistrement T24 brut, non décodé
+     */
     @Override
-    public T24Table mapRow(ResultSet resultSet, int i) throws SQLException 
+    public T24Table mapRow(ResultSet resultSet, int i) throws SQLException
     {
     	T24Table t24XMLItem = new T24Table();
         

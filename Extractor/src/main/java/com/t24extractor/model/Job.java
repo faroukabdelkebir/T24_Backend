@@ -8,6 +8,12 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 
+/**
+ * Résumé d'une exécution de job, destiné au suivi.
+ *
+ * <p>Vue applicative des métadonnées Spring Batch : statut, durée et volumes
+ * lus/écrits.
+ */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

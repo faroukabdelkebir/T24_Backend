@@ -3,6 +3,12 @@ package com.t24extractor.model;
 import lombok.*;
 import org.springframework.stereotype.Component;
 
+/**
+ * Paramétrage complet d'une extraction (image de BATCH_CONFIG).
+ *
+ * <p>Regroupe la table T24 visée, son mode de chargement et les bornes
+ * temporelles associées.
+ */
 @Data
 @Getter
 @Setter
@@ -10,7 +16,7 @@ import org.springframework.stereotype.Component;
 @AllArgsConstructor
 @NoArgsConstructor
 @Component
-public class TableMessage 
+public class TableMessage
 {
     private Long id;
     

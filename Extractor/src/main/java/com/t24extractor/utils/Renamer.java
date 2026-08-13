@@ -4,10 +4,13 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 
 /**
- * @Author: Rami Bahrouni
- * @Email: rami.bahrouni@banquezitouna.com
-
- * Avec cette classe, on peurt renommer les noms des tables T24 pour les utiliser lors de requetage avec les tables TAFJ_VOC & FILE.CONTROL
+ * Traduction des noms de tables entre les conventions T24, Oracle et SQL Server.
+ *
+ * <p>T24 emploie des points et le caractère {@code $}, qu'aucune des deux bases
+ * cibles n'accepte dans un identifiant non échappé. Selon l'usage, le nom doit
+ * être normalisé pour interroger TAFJ_VOC et F_FILE_CONTROL, ou converti pour
+ * nommer la table BI.
+ *
  */
 public class Renamer {
     /**

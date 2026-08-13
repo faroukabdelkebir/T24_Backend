@@ -7,6 +7,12 @@ import org.springframework.stereotype.Service;
 
 import java.util.NoSuchElementException;
 
+/**
+ * Implémentation adossée à la table T24 F_FILE_CONTROL.
+ *
+ * <p>Le nom reçu est d'abord normalisé (suppression du suffixe {@code $HIS} et
+ * assimilés), F_FILE_CONTROL n'indexant que les tables de base.
+ */
 @Service
 public class FileControlServiceImpl implements IFileControlService{
 
@@ -19,6 +25,13 @@ public class FileControlServiceImpl implements IFileControlService{
         this.fileControlRepository = fileControlRepository;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws java.util.NoSuchElementException si la table est absente de
+     *         F_FILE_CONTROL — sans classification, le nom Oracle ne peut pas
+     *         être reconstitué
+     */
     @Override
     public String classification(String recid) {
 

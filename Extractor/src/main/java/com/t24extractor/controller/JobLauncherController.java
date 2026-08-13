@@ -23,6 +23,18 @@ import java.util.UUID;
 
 import static com.t24extractor.commons.Constants.RUN_ID;
 
+/**
+ * Lancement et arrêt manuels des extractions.
+ *
+ * <p>Chaque endpoint démarre un job de façon asynchrone et rend la main
+ * immédiatement : la réponse signale la prise en compte, pas la fin du
+ * traitement. Le suivi se fait par les métadonnées Spring Batch.
+ *
+ * <p>Chaque lancement reçoit un {@code run.id} unique, sans quoi Spring Batch
+ * rejetterait une seconde exécution aux mêmes paramètres.
+ *
+ * <p>Tous ces endpoints exigent l'autorité {@code SCOPE_batch:execute}.
+ */
 @RestController
 @RequestMapping("/api/v1")
 @Slf4j
@@ -53,6 +65,12 @@ public class JobLauncherController {
         this.billDetailsJob = billDetailsJob;
     }
 
+    /**
+     * Lance l'extraction complète des trois tables.
+     *
+     * @throws IllegalStateException si le job ne peut pas démarrer : instance
+     *         déjà terminée, exécution en cours ou paramètres invalides
+     */
     @RequestMapping("/start")
     public void handleMain()  {
 
@@ -70,6 +88,11 @@ public class JobLauncherController {
         }
     }
 
+    /**
+     * Lance la seule extraction CUSTOMER.
+     *
+     * @throws IllegalStateException si le job ne peut pas démarrer
+     */
     @RequestMapping("/customer/start")
     public void handleCustomer()  {
         JobParameters jobParameters = new JobParametersBuilder()
@@ -86,6 +109,11 @@ public class JobLauncherController {
         }
     }
 
+    /**
+     * Lance la seule extraction FUNDS.TRANSFER$HIS.
+     *
+     * @throws IllegalStateException si le job ne peut pas démarrer
+     */
     @RequestMapping("/ft-his/start")
     public void handleFt() {
         JobParameters jobParameters = new JobParametersBuilder()
@@ -102,6 +130,14 @@ public class JobLauncherController {
         }
     }
 
+    /**
+     * Lance la seule extraction AA.BILL.DETAILS.
+     *
+     * <p>Une exécution déjà en cours est signalée dans les journaux mais ne
+     * bloque pas l'appel : c'est Spring Batch qui tranche.
+     *
+     * @throws Exception si le job ne peut pas démarrer
+     */
     @RequestMapping("/billdetails/start")
     public void handleBillDetails() throws Exception {
         String jobName = billDetailsJob.getName();
@@ -116,6 +152,14 @@ public class JobLauncherController {
         jobOperator.start(billDetailsJob, jobParameters);
     }
 
+    /**
+     * Demande l'arrêt de l'extraction globale en cours.
+     *
+     * <p>Seule la plus récente des exécutions du job {@code T24} est arrêtée.
+     * L'arrêt est coopératif : Spring Batch interrompt à la fin du chunk courant.
+     *
+     * @throws IllegalArgumentException si l'arrêt échoue
+     */
     @RequestMapping("/stop")
     public void handleStoppingAllJobs()  {
         Set<JobExecution> executions = jobRepository.findRunningJobExecutions("T24");

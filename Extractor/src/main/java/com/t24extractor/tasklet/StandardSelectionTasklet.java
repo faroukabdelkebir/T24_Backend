@@ -19,6 +19,48 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.io.IOException;
 import java.util.*;
 
+import static com.t24extractor.commons.Constants.SELECT_BLOB_VIEW_PREFIX;
+import static com.t24extractor.commons.Constants.SELECT_BLOB_VIEW_SUFFIX_TPL;
+import static com.t24extractor.commons.Constants.UPDATE_BATCH_CONFIG_TYPE_TPL;
+
+/**
+ * Traduit le dictionnaire STANDARD.SELECTION de T24 en schéma exploitable.
+ *
+ * <p>C'est l'étape qui donne un sens aux enregistrements T24 : sans elle, un
+ * XMLRECORD n'est qu'une suite de balises {@code c1}, {@code c2}… sans nom ni
+ * type. Le dictionnaire est un XML dont chaque balise porte un attribut
+ * {@code m} identifiant le champ décrit :
+ *
+ * <table class="striped">
+ *   <caption>Balises interprétées</caption>
+ *   <thead><tr><th>Balise</th><th>Signification</th></tr></thead>
+ *   <tbody>
+ *     <tr><td>{@code c1}</td><td>nom du champ</td></tr>
+ *     <tr><td>{@code c2}</td><td>nature ; seuls les champs de données ({@code D}) sont retenus</td></tr>
+ *     <tr><td>{@code c3}</td><td>numéro de champ, qui devient la clé {@code c<n>}</td></tr>
+ *     <tr><td>{@code c4}</td><td>type T24 ({@code IN2AMT} → Float, {@code IN2.D} → Integer…)</td></tr>
+ *     <tr><td>{@code c6}</td><td>longueur</td></tr>
+ *     <tr><td>{@code c10}</td><td>{@code S} simple ou {@code M} multivalué</td></tr>
+ *     <tr><td>{@code c15}, {@code c17}, {@code c18}, {@code c24}</td>
+ *         <td>nom, position, type et cardinalité des champs LOCAL.REF</td></tr>
+ *   </tbody>
+ * </table>
+ *
+ * <p>Les points des noms T24 sont remplacés par des soulignés, SQL Server ne
+ * les acceptant pas dans un identifiant non échappé.
+ *
+ * <h2>Sorties</h2>
+ * <ul>
+ *   <li>{@code sysFieldOds} — dictionnaire nom de colonne → type ODS, référence
+ *       unique pour BI_SYNC puis la normalisation JSON ;</li>
+ *   <li>{@code Mongo_Standard_Selection} — dictionnaire détaillé consommé par
+ *       {@link com.t24extractor.processor.XMLProcessor} ;</li>
+ *   <li>{@code VIEW_QUERY} — uniquement pour les tables BLOB, requête de lecture
+ *       de la vue éclatée ;</li>
+ *   <li>{@code TYPE} — corrige le mode de stockage si TAFJ contredit la
+ *       configuration enregistrée.</li>
+ * </ul>
+ */
 @Slf4j
 public class StandardSelectionTasklet implements Tasklet {
     private final JdbcTemplate jdbcBatchExecutor;
@@ -30,9 +72,6 @@ public class StandardSelectionTasklet implements Tasklet {
     private String tableType;
     protected static final List<String> blobViewFields = new ArrayList<>();
     protected static final Set<String> multiValueBlobFields = new HashSet<>();
-    private static final String BATCH_CONFIG_TABLE = "batch_config";
-    private static final String ORACLENAMECOLUMN = "TableName";
-    private static final String TYPECOLUMN = "Type";
     private static final String STRING_TYPE = "String";
     private static final String IN2AMT = "IN2AMT";
     private static final String IN2AMT_AMP = "IN2AMT&";
@@ -70,26 +109,49 @@ public class StandardSelectionTasklet implements Tasklet {
         return jdbcExecutor;
     }
 
+    /** @param jdbcOperations accès à la base T24 (Oracle) */
     public void setJdbcExecutor(JdbcOperations jdbcOperations) {
         jdbcExecutor = jdbcOperations;
     }
 
+    /** @param oracleName table Oracle physique, par exemple {@code FBNK_CUSTOMER} */
     public void setOracleTableName(String oracleName) {
         oracleTableName = oracleName;
     }
 
+    /** @param t24Name nom fonctionnel T24, par exemple {@code FUNDS.TRANSFER$HIS} */
     public void setT24TableName(String t24Name) {
         t24TableName = t24Name;
     }
 
+    /** @param type mode de stockage attendu ({@code X}, {@code B} ou {@code C}) */
     public void setTableType(String type) {
         tableType = type;
     }
 
+    /**
+     * Colonnes de la vue BLOB, publiées pour
+     * {@link com.t24extractor.rowmapper.BlobRowMapper} qui ne peut pas les
+     * connaître autrement.
+     *
+     * <p><b>État partagé et mutable</b> : la liste est statique et réinitialisée
+     * à chaque exécution. Deux tables BLOB ne peuvent donc pas être traitées
+     * simultanément.
+     *
+     * @return les noms de colonnes de la dernière vue construite
+     */
     public static List<String> getBlobViewFields() {
         return blobViewFields;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @return toujours {@link RepeatStatus#FINISHED}
+     * @throws NullPointerException si TAFJ_VOC ou le STANDARD.SELECTION ne
+     *         référencent pas la table
+     * @throws ParsingException si le dictionnaire XML est illisible
+     */
     @Override
     public RepeatStatus execute(StepContribution stepContribution, ChunkContext chunkContext) throws Exception {
         blobViewFields.clear();
@@ -112,10 +174,8 @@ public class StandardSelectionTasklet implements Tasklet {
         if (tafjVocRow == null || tafjVocRow.isEmpty() || tableType.equals(tafjVocRow)) {
             return;
         }
-        String sqlQuery =
-                "UPDATE " + BATCH_CONFIG_TABLE + " SET \"" + TYPECOLUMN + "\" = '" + tafjVocRow
-                        + "' WHERE \"" + ORACLENAMECOLUMN + "\" = '" + oracleTableName + "'";
-        jdbcBatchExecutor.execute(sqlQuery);
+        jdbcBatchExecutor.execute(
+                String.format(UPDATE_BATCH_CONFIG_TYPE_TPL, tafjVocRow, oracleTableName));
         chunkContext.getStepContext().getStepExecution().getJobExecution().getExecutionContext().put("TYPE", tafjVocRow);
     }
 
@@ -313,7 +373,7 @@ public class StandardSelectionTasklet implements Tasklet {
             }
         }
 
-        StringBuilder viewQuery = new StringBuilder("SELECT RECID as FIELD_ID, ");
+        StringBuilder viewQuery = new StringBuilder(SELECT_BLOB_VIEW_PREFIX);
         Iterator<Map.Entry<String, Object>> iterator = context.enhancedFieldType.toMap().entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<String, Object> entry = iterator.next();
@@ -329,7 +389,7 @@ public class StandardSelectionTasklet implements Tasklet {
         if (!localRefFields.isEmpty()) {
             viewQuery.append(", ").append(localRefFields);
         }
-        viewQuery.append(", ROWNUM rowNumber FROM V_").append(oracleTableName).append(" t");
+        viewQuery.append(String.format(SELECT_BLOB_VIEW_SUFFIX_TPL, oracleTableName));
         chunkContext.getStepContext().getStepExecution().getJobExecution().getExecutionContext()
                 .put("VIEW_QUERY", viewQuery.toString());
     }

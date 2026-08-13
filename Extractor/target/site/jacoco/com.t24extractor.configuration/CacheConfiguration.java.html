@@ -7,19 +7,36 @@ import org.springframework.cache.caffeine.CaffeineCacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/**
+ * Cache mémoire des dictionnaires T24.
+ *
+ * &lt;p&gt;TAFJ_VOC et STANDARD.SELECTION sont relus pour chaque table traitée alors
+ * qu'ils ne changent pas pendant une extraction. Les mettre en cache évite
+ * autant d'allers-retours vers Oracle.
+ *
+ * &lt;p&gt;Aucune expiration n'est configurée : le cache vit le temps du processus,
+ * et une évolution de dictionnaire T24 suppose un redémarrage.
+ */
 @Configuration
 @EnableCaching
-<span class="nc" id="L12">public class CacheConfiguration {</span>
+<span class="fc" id="L22">public class CacheConfiguration {</span>
+    /**
+     * @return un constructeur Caffeine aux réglages par défaut
+     */
     @Bean
     public Caffeine&lt;Object, Object&gt; ssCache() {
-<span class="nc" id="L15">        return Caffeine.newBuilder();</span>
+<span class="fc" id="L28">        return Caffeine.newBuilder();</span>
     }
 
+    /**
+     * @param caffeine constructeur de caches
+     * @return un gestionnaire créant les caches à la demande
+     */
     @Bean
     public CacheManager cacheManager(Caffeine&lt;Object, Object&gt; caffeine) {
-<span class="nc" id="L20">        CaffeineCacheManager caffeineCacheManager = new CaffeineCacheManager();</span>
-<span class="nc" id="L21">        caffeineCacheManager.setCaffeine(caffeine);</span>
-<span class="nc" id="L22">        return caffeineCacheManager;</span>
+<span class="fc" id="L37">        CaffeineCacheManager caffeineCacheManager = new CaffeineCacheManager();</span>
+<span class="fc" id="L38">        caffeineCacheManager.setCaffeine(caffeine);</span>
+<span class="fc" id="L39">        return caffeineCacheManager;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

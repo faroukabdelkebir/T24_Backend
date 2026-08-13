@@ -21,11 +21,27 @@ import org.springframework.transaction.PlatformTransactionManager;
 
 import static com.t24extractor.commons.Constants.*;
 
+/**
+ * Déclaration autonome du step {@code BI_SYNC}.
+ *
+ * <p>Variante alimentée depuis le contexte de <i>step</i> et non de <i>job</i>,
+ * utilisable dans un contexte partitionné où chaque partition dispose de son
+ * propre dictionnaire.
+ */
 @Slf4j
 @Configuration
 public class BISyncStep {
 
 
+    /**
+     * @param ssMap                       dictionnaire STANDARD.SELECTION de la partition
+     * @param schemaSourceRepository      référentiel des colonnes
+     * @param schemaSourceAuditRepository changements de schéma en attente
+     * @param metaDataRepository          registre des champs multivalués
+     * @param scheduledOpsRepository      opérations de maintenance différées
+     * @param jdbcTemplate                accès à la base BI
+     * @return le tasklet configuré pour la table traitée
+     */
     @Bean
     @StepScope
     public BISyncTasklet biSyncTasklet(

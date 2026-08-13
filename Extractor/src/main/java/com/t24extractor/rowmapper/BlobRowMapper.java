@@ -8,14 +8,31 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.HashMap;
 
+/**
+ * Mappe une ligne de vue BLOB en dictionnaire colonne → valeur.
+ *
+ * <p>Contrairement au mode XML, les colonnes ne sont pas connues à la
+ * compilation : elles sont déterminées à l'exécution par
+ * {@link StandardSelectionTasklet#getBlobViewFields()}, alimenté lors de la
+ * construction de la vue.
+ *
+ * <p>Une colonne illisible est tracée puis ignorée plutôt que de faire échouer
+ * le chunk entier : la vue peut contenir des champs absents de certaines lignes.
+ */
 public class BlobRowMapper implements RowMapper<HashMap<String, Object>>
 {
 
 
     private static final Logger LOG = LoggerFactory.getLogger(BlobRowMapper.class) ;
 
+    /**
+     * {@inheritDoc}
+     *
+     * @return les champs de la vue, plus {@code _id} et {@code rowNumber}
+     *         (ce dernier servant au découpage en partitions)
+     */
     @Override
-    public HashMap<String, Object> mapRow(ResultSet resultSet, int i) throws SQLException 
+    public HashMap<String, Object> mapRow(ResultSet resultSet, int i) throws SQLException
     {
         HashMap<String, Object> t24BlobItem = new HashMap<>();
         t24BlobItem.put("_id", resultSet.getString("FIELD_ID"));

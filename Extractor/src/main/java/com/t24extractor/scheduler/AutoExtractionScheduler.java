@@ -28,20 +28,29 @@ import static com.t24extractor.commons.Constants.AA_BILL_DETAILS;
 import static com.t24extractor.commons.Constants.CUSTOMER;
 import static com.t24extractor.commons.Constants.FUNDS_TRANSFER_HIS;
 import static com.t24extractor.commons.Constants.RUN_ID;
+import static com.t24extractor.commons.Constants.SELECT_SCHEDULED_BATCHES;
 
+/**
+ * Déclenche les extractions dont l'heure de planification est atteinte.
+ *
+ * <p>Plutôt qu'une expression cron figée, la planification est lue en base à
+ * chaque tour : elle reste modifiable depuis l'IHM sans redéploiement. Le
+ * scanner s'exécute à intervalle régulier ({@code extractor.scheduler.poll-ms})
+ * et lance les extractions actives dont l'heure est passée.
+ *
+ * <p>Deux garde-fous évitent les doublons : une extraction déjà lancée le jour
+ * même est ignorée, et une extraction dont le job tourne encore n'est pas
+ * relancée. La mémoire des lancements est en revanche conservée en mémoire
+ * vive : un redémarrage en cours de journée peut donc provoquer une seconde
+ * exécution.
+ *
+ * <p>Une heure mal formée est signalée dans les journaux et ignorée, sans
+ * interrompre le traitement des autres lignes.
+ */
 @Component
 @RefreshScope
 @Slf4j
 public class AutoExtractionScheduler {
-
-    private static final String SELECT_SCHEDULED_BATCHES = """
-            SELECT id, scheduler_time
-            FROM BATCH_CONFIG
-            WHERE enabled = 1
-              AND scheduler = 1
-              AND scheduler_time IS NOT NULL
-              AND LTRIM(RTRIM(scheduler_time)) <> ''
-            """;
 
     private final JdbcTemplate jdbcBI;
     private final JobOperator jobOperator;
@@ -71,6 +80,14 @@ public class AutoExtractionScheduler {
         this.mainJob = mainJob;
     }
 
+    /**
+     * Passe en revue les extractions planifiées et lance celles qui sont dues.
+     *
+     * <p>Appelée automatiquement à intervalle fixe. Une extraction est lancée si
+     * son heure est atteinte et qu'elle n'a pas déjà tourné dans la journée.
+     *
+     * @throws IllegalStateException si un job dû ne peut pas être démarré
+     */
     @Scheduled(fixedDelayString = "${extractor.scheduler.poll-ms:60000}")
     public void runDynamicScheduler() {
         LocalTime now = LocalTime.now().withSecond(0).withNano(0);

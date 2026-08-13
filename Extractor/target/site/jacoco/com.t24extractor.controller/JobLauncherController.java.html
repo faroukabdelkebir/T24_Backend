@@ -23,9 +23,21 @@ import java.util.UUID;
 
 import static com.t24extractor.commons.Constants.RUN_ID;
 
+/**
+ * Lancement et arrêt manuels des extractions.
+ *
+ * &lt;p&gt;Chaque endpoint démarre un job de façon asynchrone et rend la main
+ * immédiatement : la réponse signale la prise en compte, pas la fin du
+ * traitement. Le suivi se fait par les métadonnées Spring Batch.
+ *
+ * &lt;p&gt;Chaque lancement reçoit un {@code run.id} unique, sans quoi Spring Batch
+ * rejetterait une seconde exécution aux mêmes paramètres.
+ *
+ * &lt;p&gt;Tous ces endpoints exigent l'autorité {@code SCOPE_batch:execute}.
+ */
 @RestController
 @RequestMapping(&quot;/api/v1&quot;)
-<span class="fc" id="L28">@Slf4j</span>
+<span class="fc" id="L40">@Slf4j</span>
 public class JobLauncherController {
 
     JobOperator jobOperator;
@@ -43,98 +55,125 @@ public class JobLauncherController {
                                  @Qualifier(&quot;customer&quot;) Job cusJob,
                                  @Qualifier(&quot;ftHis&quot;) Job ftJob,
                                  @Qualifier(&quot;billDetails&quot;) Job billDetailsJob
-<span class="fc" id="L46">                                 ) {</span>
-<span class="fc" id="L47">        this.jobOperator = jobOperator;</span>
-<span class="fc" id="L48">        this.jobRepository = jobRepository;</span>
-<span class="fc" id="L49">        this.loaderJob = loaderJob;</span>
-<span class="fc" id="L50">        this.mainJob = mainJob;</span>
-<span class="fc" id="L51">        this.cusJob = cusJob;</span>
-<span class="fc" id="L52">        this.ftJob = ftJob;</span>
-<span class="fc" id="L53">        this.billDetailsJob = billDetailsJob;</span>
-<span class="fc" id="L54">    }</span>
+<span class="fc" id="L58">                                 ) {</span>
+<span class="fc" id="L59">        this.jobOperator = jobOperator;</span>
+<span class="fc" id="L60">        this.jobRepository = jobRepository;</span>
+<span class="fc" id="L61">        this.loaderJob = loaderJob;</span>
+<span class="fc" id="L62">        this.mainJob = mainJob;</span>
+<span class="fc" id="L63">        this.cusJob = cusJob;</span>
+<span class="fc" id="L64">        this.ftJob = ftJob;</span>
+<span class="fc" id="L65">        this.billDetailsJob = billDetailsJob;</span>
+<span class="fc" id="L66">    }</span>
 
+    /**
+     * Lance l'extraction complète des trois tables.
+     *
+     * @throws IllegalStateException si le job ne peut pas démarrer : instance
+     *         déjà terminée, exécution en cours ou paramètres invalides
+     */
     @RequestMapping(&quot;/start&quot;)
-    @CrossOrigin
     public void handleMain()  {
 
-<span class="fc" id="L60">        JobParameters jobParameters = new JobParametersBuilder()</span>
-<span class="fc" id="L61">                .addString(RUN_ID, UUID.randomUUID().toString())</span>
-<span class="fc" id="L62">                .addLong(&quot;time&quot;, System.currentTimeMillis())</span>
-<span class="fc" id="L63">                .toJobParameters();</span>
-        try {
-<span class="fc" id="L65">            jobOperator.start(mainJob, jobParameters);</span>
-<span class="fc" id="L66">        } catch (JobInstanceAlreadyCompleteException</span>
-                 | JobExecutionAlreadyRunningException
-                 | InvalidJobParametersException
-                 | JobRestartException e) {
-<span class="fc" id="L70">            throw new IllegalStateException(&quot;Unable to start main job&quot;, e);</span>
-<span class="fc" id="L71">        }</span>
-<span class="fc" id="L72">    }</span>
-
-    @RequestMapping(&quot;/customer/start&quot;)
-    @CrossOrigin
-    public void handleCustomer()  {
 <span class="fc" id="L77">        JobParameters jobParameters = new JobParametersBuilder()</span>
 <span class="fc" id="L78">                .addString(RUN_ID, UUID.randomUUID().toString())</span>
 <span class="fc" id="L79">                .addLong(&quot;time&quot;, System.currentTimeMillis())</span>
 <span class="fc" id="L80">                .toJobParameters();</span>
         try {
-<span class="fc" id="L82">            jobOperator.start(cusJob, jobParameters);</span>
-<span class="nc" id="L83">        } catch (JobInstanceAlreadyCompleteException</span>
+<span class="fc" id="L82">            jobOperator.start(mainJob, jobParameters);</span>
+<span class="fc" id="L83">        } catch (JobInstanceAlreadyCompleteException</span>
                  | JobExecutionAlreadyRunningException
                  | InvalidJobParametersException
                  | JobRestartException e) {
-<span class="nc" id="L87">            throw new IllegalStateException(&quot;Unable to start customer job&quot;, e);</span>
+<span class="fc" id="L87">            throw new IllegalStateException(&quot;Unable to start main job&quot;, e);</span>
 <span class="fc" id="L88">        }</span>
 <span class="fc" id="L89">    }</span>
 
-    @RequestMapping(&quot;/ft-his/start&quot;)
-    @CrossOrigin
-    public void handleFt() {
-<span class="fc" id="L94">        JobParameters jobParameters = new JobParametersBuilder()</span>
-<span class="fc" id="L95">                .addString(RUN_ID, UUID.randomUUID().toString())</span>
-<span class="fc" id="L96">                .addLong(&quot;time&quot;, System.currentTimeMillis())</span>
-<span class="fc" id="L97">                .toJobParameters();</span>
+    /**
+     * Lance la seule extraction CUSTOMER.
+     *
+     * @throws IllegalStateException si le job ne peut pas démarrer
+     */
+    @RequestMapping(&quot;/customer/start&quot;)
+    public void handleCustomer()  {
+<span class="fc" id="L98">        JobParameters jobParameters = new JobParametersBuilder()</span>
+<span class="fc" id="L99">                .addString(RUN_ID, UUID.randomUUID().toString())</span>
+<span class="fc" id="L100">                .addLong(&quot;time&quot;, System.currentTimeMillis())</span>
+<span class="fc" id="L101">                .toJobParameters();</span>
         try {
-<span class="fc" id="L99">            jobOperator.start(ftJob, jobParameters);</span>
-<span class="nc" id="L100">        } catch (JobInstanceAlreadyCompleteException</span>
+<span class="fc" id="L103">            jobOperator.start(cusJob, jobParameters);</span>
+<span class="fc" id="L104">        } catch (JobInstanceAlreadyCompleteException</span>
                  | JobExecutionAlreadyRunningException
                  | InvalidJobParametersException
                  | JobRestartException e) {
-<span class="nc" id="L104">            throw new IllegalStateException(&quot;Unable to start ft job&quot;, e);</span>
-<span class="fc" id="L105">        }</span>
-<span class="fc" id="L106">    }</span>
+<span class="fc" id="L108">            throw new IllegalStateException(&quot;Unable to start customer job&quot;, e);</span>
+<span class="fc" id="L109">        }</span>
+<span class="fc" id="L110">    }</span>
 
+    /**
+     * Lance la seule extraction FUNDS.TRANSFER$HIS.
+     *
+     * @throws IllegalStateException si le job ne peut pas démarrer
+     */
+    @RequestMapping(&quot;/ft-his/start&quot;)
+    public void handleFt() {
+<span class="fc" id="L119">        JobParameters jobParameters = new JobParametersBuilder()</span>
+<span class="fc" id="L120">                .addString(RUN_ID, UUID.randomUUID().toString())</span>
+<span class="fc" id="L121">                .addLong(&quot;time&quot;, System.currentTimeMillis())</span>
+<span class="fc" id="L122">                .toJobParameters();</span>
+        try {
+<span class="fc" id="L124">            jobOperator.start(ftJob, jobParameters);</span>
+<span class="fc" id="L125">        } catch (JobInstanceAlreadyCompleteException</span>
+                 | JobExecutionAlreadyRunningException
+                 | InvalidJobParametersException
+                 | JobRestartException e) {
+<span class="fc" id="L129">            throw new IllegalStateException(&quot;Unable to start ft job&quot;, e);</span>
+<span class="fc" id="L130">        }</span>
+<span class="fc" id="L131">    }</span>
+
+    /**
+     * Lance la seule extraction AA.BILL.DETAILS.
+     *
+     * &lt;p&gt;Une exécution déjà en cours est signalée dans les journaux mais ne
+     * bloque pas l'appel : c'est Spring Batch qui tranche.
+     *
+     * @throws Exception si le job ne peut pas démarrer
+     */
     @RequestMapping(&quot;/billdetails/start&quot;)
-    @CrossOrigin
     public void handleBillDetails() throws Exception {
-<span class="fc" id="L111">        String jobName = billDetailsJob.getName();</span>
-<span class="pc bpc" id="L112" title="1 of 2 branches missed.">        if (!jobRepository.findRunningJobExecutions(jobName).isEmpty()) {</span>
-<span class="nc" id="L113">            log.warn(&quot;{} est déja en cours&quot;, jobName);</span>
+<span class="fc" id="L143">        String jobName = billDetailsJob.getName();</span>
+<span class="fc bfc" id="L144" title="All 2 branches covered.">        if (!jobRepository.findRunningJobExecutions(jobName).isEmpty()) {</span>
+<span class="fc" id="L145">            log.warn(&quot;{} est déja en cours&quot;, jobName);</span>
         }
 
-<span class="fc" id="L116">        JobParameters jobParameters = new JobParametersBuilder()</span>
-<span class="fc" id="L117">                .addString(RUN_ID, UUID.randomUUID().toString())</span>
-<span class="fc" id="L118">                .addLong(&quot;time&quot;, System.currentTimeMillis())</span>
-<span class="fc" id="L119">                .toJobParameters();</span>
-<span class="fc" id="L120">        jobOperator.start(billDetailsJob, jobParameters);</span>
-<span class="fc" id="L121">    }</span>
+<span class="fc" id="L148">        JobParameters jobParameters = new JobParametersBuilder()</span>
+<span class="fc" id="L149">                .addString(RUN_ID, UUID.randomUUID().toString())</span>
+<span class="fc" id="L150">                .addLong(&quot;time&quot;, System.currentTimeMillis())</span>
+<span class="fc" id="L151">                .toJobParameters();</span>
+<span class="fc" id="L152">        jobOperator.start(billDetailsJob, jobParameters);</span>
+<span class="fc" id="L153">    }</span>
 
+    /**
+     * Demande l'arrêt de l'extraction globale en cours.
+     *
+     * &lt;p&gt;Seule la plus récente des exécutions du job {@code T24} est arrêtée.
+     * L'arrêt est coopératif : Spring Batch interrompt à la fin du chunk courant.
+     *
+     * @throws IllegalArgumentException si l'arrêt échoue
+     */
     @RequestMapping(&quot;/stop&quot;)
-    @CrossOrigin
     public void handleStoppingAllJobs()  {
-<span class="fc" id="L126">        Set&lt;JobExecution&gt; executions = jobRepository.findRunningJobExecutions(&quot;T24&quot;);</span>
-<span class="fc" id="L127">        log.info(&quot;Executions: {}&quot;, executions);</span>
-<span class="fc" id="L128">        executions.stream()</span>
-<span class="fc" id="L129">                .max(Comparator.comparing(JobExecution::getCreateTime))</span>
-<span class="fc" id="L130">                .ifPresent(jobExecution -&gt; {</span>
+<span class="fc" id="L165">        Set&lt;JobExecution&gt; executions = jobRepository.findRunningJobExecutions(&quot;T24&quot;);</span>
+<span class="fc" id="L166">        log.info(&quot;Executions: {}&quot;, executions);</span>
+<span class="fc" id="L167">        executions.stream()</span>
+<span class="fc" id="L168">                .max(Comparator.comparing(JobExecution::getCreateTime))</span>
+<span class="fc" id="L169">                .ifPresent(jobExecution -&gt; {</span>
                     try {
-<span class="fc" id="L132">                        jobOperator.stop(jobExecution);</span>
-<span class="nc" id="L133">                    } catch (Exception e) {</span>
-<span class="nc" id="L134">                        throw new IllegalArgumentException(&quot;Failed to stop running execution &quot; + jobExecution.getId(), e);</span>
-<span class="fc" id="L135">                    }</span>
-<span class="fc" id="L136">                });</span>
-<span class="fc" id="L137">    }</span>
+<span class="fc" id="L171">                        jobOperator.stop(jobExecution);</span>
+<span class="fc" id="L172">                    } catch (Exception e) {</span>
+<span class="fc" id="L173">                        throw new IllegalArgumentException(&quot;Failed to stop running execution &quot; + jobExecution.getId(), e);</span>
+<span class="fc" id="L174">                    }</span>
+<span class="fc" id="L175">                });</span>
+<span class="fc" id="L176">    }</span>
 
 
 

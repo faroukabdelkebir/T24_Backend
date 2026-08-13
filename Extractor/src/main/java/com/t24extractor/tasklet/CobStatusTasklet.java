@@ -15,8 +15,19 @@ import org.springframework.stereotype.Component;
 import static com.t24extractor.commons.Constants.*;
 
 /**
- * Cette tasklet prend en charge de vérifier si le COB est en état STOP
- * Si c'est le cas, l'extracteur se démarre pour vérifier s'il y a des données à extraire.
+ * Première étape de tout job : vérifie que la clôture journalière T24 est
+ * terminée avant d'autoriser l'extraction.
+ *
+ * <p>Pendant le COB (<i>Close Of Business</i>), T24 réécrit massivement ses
+ * tables : les lire à ce moment produirait un instantané incohérent. L'étape
+ * lit le champ {@code SERVICE_CONTROL} de F_TSA_SERVICE ; seule la valeur
+ * {@code STOP} laisse le job continuer.
+ *
+ * <p>Si le COB tourne encore, l'étape n'échoue pas : elle positionne le statut
+ * de sortie {@code COB_RUNNING}, ce qui interrompt proprement le flow. Le job
+ * sera relancé au créneau suivant.
+ *
+ * @see com.t24extractor.model.CobStatus
  */
 @Component
 @Slf4j
@@ -28,11 +39,23 @@ public class CobStatusTasklet implements Tasklet {
 
 
 
+    /**
+     * @param cobRepository accès en lecture à l'état du service T24
+     */
     @Autowired
     public CobStatusTasklet(CobRepository cobRepository) {
         this.cobRepository = cobRepository;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @return toujours {@link RepeatStatus#FINISHED} ; le refus de poursuivre
+     *         passe par le statut de sortie, pas par une exception
+     * @throws com.t24extractor.exception.DataNotFoundException si la table
+     *         F_TSA_SERVICE ne contient pas la ligne COB, signe que la base T24
+     *         n'est pas correctement chargée
+     */
     @Override
     public RepeatStatus execute(@NonNull StepContribution stepContribution, @NonNull ChunkContext chunkContext) throws Exception {
         log.info("*-----------------* Vérification si le COB est en état d'arrêt *-----------------*");

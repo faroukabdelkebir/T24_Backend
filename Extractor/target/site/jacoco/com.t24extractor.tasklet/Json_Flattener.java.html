@@ -18,6 +18,16 @@ import java.util.List;
 
 import static com.t24extractor.commons.Constants.*;
 
+/**
+ * Normalise les champs multivalués (JSON) de la table principale vers des
+ * tables satellites « TABLE#CHAMP ».
+ *
+ * v2 — IDEMPOTENT : chaque satellite est vidé avant d'être realimenté.
+ * L'ancienne version réinsérait l'intégralité des lignes à chaque exécution
+ * du job, ce qui multipliait les volumes (ex. 4 000 factures → 16 000 lignes
+ * dans AA_BILL_DETAILS#SETTLE_STATUS après 4 runs) et faussait toutes les
+ * agrégations en aval.
+ */
 @Component
 @StepScope
 public class Json_Flattener implements Tasklet {
@@ -27,96 +37,89 @@ public class Json_Flattener implements Tasklet {
     @Setter
     protected String table;
 
-<span class="fc" id="L30">    public Json_Flattener(@Qualifier(&quot;jdbcBI&quot;) JdbcTemplate jdbcTemplate) {</span>
-<span class="fc" id="L31">        this.jdbcTemplate = jdbcTemplate;</span>
-<span class="fc" id="L32">    }</span>
+<span class="fc" id="L40">    public Json_Flattener(@Qualifier(&quot;jdbcBI&quot;) JdbcTemplate jdbcTemplate) {</span>
+<span class="fc" id="L41">        this.jdbcTemplate = jdbcTemplate;</span>
+<span class="fc" id="L42">    }</span>
 
 
+    /**
+     * {@inheritDoc}
+     *
+     * &lt;p&gt;Pour chaque champ multivalué de la table, crée si besoin la table
+     * satellite {@code TABLE#CHAMP}, la vide, puis la réalimente en éclatant le
+     * JSON avec {@code OPENJSON}. Les colonnes absentes de la table principale
+     * et le champ {@code DATE_TIME} sont ignorés.
+     *
+     * @return toujours {@link RepeatStatus#FINISHED}
+     */
     @Override
     public RepeatStatus execute(StepContribution stepContribution, @NonNull ChunkContext chunkContext) throws Exception {
 
-<span class="fc" id="L38">        JSONObject nameJs = new JSONObject(</span>
-<span class="fc" id="L39">                stepContribution.getStepExecution()</span>
-<span class="fc" id="L40">                        .getJobExecution()</span>
-<span class="fc" id="L41">                        .getExecutionContext()</span>
-<span class="fc" id="L42">                        .getString(BI_STANDARD_SELECTION)</span>
+<span class="fc" id="L58">        JSONObject nameJs = new JSONObject(</span>
+<span class="fc" id="L59">                stepContribution.getStepExecution()</span>
+<span class="fc" id="L60">                        .getJobExecution()</span>
+<span class="fc" id="L61">                        .getExecutionContext()</span>
+<span class="fc" id="L62">                        .getString(BI_STANDARD_SELECTION)</span>
         );
-<span class="fc" id="L44">        String name = this.table;</span>
+<span class="fc" id="L64">        String name = this.table;</span>
 
-<span class="fc" id="L46">        Iterator&lt;String&gt; iterator = nameJs.keys();</span>
+<span class="fc" id="L66">        Iterator&lt;String&gt; iterator = nameJs.keys();</span>
 
-<span class="fc" id="L48">        StringBuilder sb = new StringBuilder();</span>
-<span class="fc" id="L49">        List&lt;String&gt; insertQueries = new ArrayList&lt;&gt;();</span>
-<span class="fc bfc" id="L50" title="All 2 branches covered.">        while (iterator.hasNext()) {</span>
-<span class="fc" id="L51">            String key = iterator.next();</span>
+<span class="fc" id="L68">        StringBuilder sb = new StringBuilder();</span>
+<span class="fc" id="L69">        List&lt;String&gt; deleteQueries = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L70">        List&lt;String&gt; insertQueries = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L71" title="All 2 branches covered.">        while (iterator.hasNext()) {</span>
+<span class="fc" id="L72">            String key = iterator.next();</span>
 
-<span class="fc bfc" id="L53" title="All 2 branches covered.">            if (!columnExistsInMainTable(name, key)) {</span>
-<span class="fc" id="L54">                continue;</span>
+<span class="fc bfc" id="L74" title="All 2 branches covered.">            if (!columnExistsInMainTable(name, key)) {</span>
+<span class="fc" id="L75">                continue;</span>
             }
 
-<span class="pc bpc" id="L57" title="2 of 4 branches missed.">            if (!key.contains(&quot;Local_Ref&quot;) &amp;&amp; !key.equals(&quot;DATE_TIME&quot;)</span>
-<span class="pc bpc" id="L58" title="1 of 2 branches missed.">                    &amp;&amp; nameJs.get(key).toString().contains(&quot;MAX&quot;)) {</span>
+<span class="pc bpc" id="L78" title="1 of 4 branches missed.">            if (!key.contains(&quot;Local_Ref&quot;) &amp;&amp; !key.equals(&quot;DATE_TIME&quot;)</span>
+<span class="fc bfc" id="L79" title="All 2 branches covered.">                    &amp;&amp; nameJs.get(key).toString().contains(&quot;MAX&quot;)) {</span>
 
-<span class="fc" id="L60">                sb.append(&quot;IF NOT EXISTS (SELECT * FROM sys.tables WHERE name='&quot;)</span>
-<span class="fc" id="L61">                        .append(name).append(&quot;#&quot;).append(key).append(&quot;') &quot;)</span>
-<span class="fc" id="L62">                        .append(&quot;CREATE TABLE [&quot;).append(name).append(&quot;#&quot;).append(key).append(&quot;] (&quot;)</span>
-<span class="fc" id="L63">                        .append(&quot;[&quot;).append(ID).append(&quot;]&quot;).append(ID_TYPE).append(&quot;, \n&quot;)</span>
-<span class="fc" id="L64">                        .append(&quot;[&quot;).append(key).append(&quot;] nvarchar(355) ,\n&quot;)</span>
-<span class="fc" id="L65">                        .append(&quot;[MV_SEQUENCE] int ,\n&quot;)</span>
-<span class="fc" id="L66">                        .append(&quot;[SEQUENCE] int \n&quot;)</span>
-<span class="fc" id="L67">                        .append(&quot;)&quot;);</span>
+<span class="fc" id="L81">                sb.append(String.format(CREATE_SATELLITE_TABLE_TPL, name, key, ID_TYPE));</span>
 
-<span class="fc" id="L69">                String insertQuery = String.format(&quot;&quot;&quot;</span>
-                        INSERT INTO [%s#%s] (_id, %s, [MV_SEQUENCE], [SEQUENCE])
-                        SELECT _id, lda.%s, lda.[MV_SEQUENCE], lda.[SEQUENCE]
-                        FROM %s AS ld
-                        CROSS APPLY OPENJSON(ld.%s)
-                        WITH (
-                          %s nvarchar(255) N'strict $.%s',
-                          [MV_SEQUENCE] int N'$.mvsequence',
-                          [SEQUENCE] int N'$.sequence'
-                        ) AS lda&quot;&quot;&quot;, name, key, key, key, name, key, key, key);
-<span class="fc" id="L79">                insertQueries.add(insertQuery);</span>
+                // Idempotence : purge avant réalimentation complète
+<span class="fc" id="L84">                deleteQueries.add(purgeQuery(name, key));</span>
 
-<span class="pc bnc" id="L81" title="All 4 branches missed.">            } else if (key.contains(&quot;Local_Ref&quot;) &amp;&amp; key.contains(&quot;MAX&quot;)) {</span>
+<span class="fc" id="L86">                insertQueries.add(String.format(INSERT_SATELLITE_TPL, name, key));</span>
 
-<span class="nc" id="L83">                sb.append(&quot;IF NOT EXISTS (SELECT * FROM sys.tables WHERE name='&quot;)</span>
-<span class="nc" id="L84">                        .append(name).append(&quot;#&quot;).append(key).append(&quot;') &quot;)</span>
-<span class="nc" id="L85">                        .append(&quot;CREATE TABLE [&quot;).append(name).append(&quot;#&quot;).append(key).append(&quot;] (&quot;)</span>
-<span class="nc" id="L86">                        .append(&quot;[&quot;).append(ID).append(&quot;]&quot;).append(ID_TYPE).append(&quot;, \n&quot;)</span>
-<span class="nc" id="L87">                        .append(&quot;[&quot;).append(key).append(&quot;] nvarchar(355) ,\n&quot;)</span>
-<span class="nc" id="L88">                        .append(&quot;[SEQUENCE] int \n&quot;)</span>
-<span class="nc" id="L89">                        .append(&quot;)&quot;);</span>
+<span class="pc bpc" id="L88" title="3 of 4 branches missed.">            } else if (key.contains(&quot;Local_Ref&quot;) &amp;&amp; key.contains(&quot;MAX&quot;)) {</span>
 
-<span class="nc" id="L91">                String insertQuery = STR.&quot;&quot;&quot;</span>
-                        INSERT INTO [\{name}#\{key}] (_id, [\{key}], [SEQUENCE])
-                        SELECT _id, lf.\{key}, lf.[SEQUENCE]
-                        FROM \{name} AS LF_table
-                        CROSS APPLY OPENJSON(LF_table.\{key})
-                        WITH (
-                        \{key} nvarchar(355) N'$.\{key}',
-                        [SEQUENCE] int N'$.sequence'
-                        ) AS lf&quot;&quot;&quot;;
-<span class="nc" id="L100">                insertQueries.add(insertQuery);</span>
+<span class="nc" id="L90">                sb.append(String.format(CREATE_LOCAL_REF_SATELLITE_TPL, name, key, ID_TYPE));</span>
+
+                // Idempotence : purge avant réalimentation complète
+<span class="nc" id="L93">                deleteQueries.add(purgeQuery(name, key));</span>
+
+<span class="nc" id="L95">                insertQueries.add(String.format(INSERT_LOCAL_REF_SATELLITE_TPL, name, key));</span>
             }
-<span class="fc" id="L102">        }</span>
+<span class="fc" id="L97">        }</span>
 
-<span class="fc bfc" id="L104" title="All 2 branches covered.">        if (!sb.isEmpty()) {</span>
-<span class="fc" id="L105">            jdbcTemplate.execute(sb.toString());</span>
+<span class="fc bfc" id="L99" title="All 2 branches covered.">        if (!sb.isEmpty()) {</span>
+<span class="fc" id="L100">            jdbcTemplate.execute(sb.toString());</span>
         }
 
-<span class="fc bfc" id="L108" title="All 2 branches covered.">        if (!insertQueries.isEmpty()) {</span>
-<span class="fc" id="L109">            jdbcTemplate.batchUpdate(insertQueries.toArray(new String[0]));</span>
+<span class="fc bfc" id="L103" title="All 2 branches covered.">        if (!deleteQueries.isEmpty()) {</span>
+<span class="fc" id="L104">            jdbcTemplate.batchUpdate(deleteQueries.toArray(new String[0]));</span>
         }
 
-<span class="fc" id="L112">        return RepeatStatus.FINISHED;</span>
+<span class="fc bfc" id="L107" title="All 2 branches covered.">        if (!insertQueries.isEmpty()) {</span>
+<span class="fc" id="L108">            jdbcTemplate.batchUpdate(insertQueries.toArray(new String[0]));</span>
+        }
+
+<span class="fc" id="L111">        return RepeatStatus.FINISHED;</span>
+    }
+
+    /** Vide un satellite s'il existe — rend la normalisation rejouable. */
+    private String purgeQuery(String tableName, String key) {
+<span class="fc" id="L116">        return String.format(PURGE_SATELLITE_TPL, tableName, key);</span>
     }
 
     private boolean columnExistsInMainTable(String tableName, String columnName) {
-<span class="fc" id="L116">        String sql = &quot;SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS &quot;</span>
-                + &quot;WHERE TABLE_NAME = ? AND COLUMN_NAME = ?&quot;;
-<span class="fc" id="L118">        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, tableName, columnName);</span>
-<span class="pc bpc" id="L119" title="1 of 4 branches missed.">        return count != null &amp;&amp; count &gt; 0;</span>
+<span class="fc" id="L120">        Integer count = jdbcTemplate.queryForObject(</span>
+                COUNT_COLUMN_IN_TABLE, Integer.class, tableName, columnName);
+<span class="pc bpc" id="L122" title="1 of 4 branches missed.">        return count != null &amp;&amp; count &gt; 0;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

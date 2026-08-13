@@ -57,6 +57,59 @@ class AutoExtractionSchedulerTest {
         verify(operator, never()).start(any(Job.class), any(JobParameters.class));
     }
 
+    @Test
+    void routesEachBatchIdToItsDedicatedJob() throws Exception {
+        when(jdbcTemplate.queryForList(any(String.class))).thenReturn(List.of(
+                Map.of("id", com.t24extractor.commons.Constants.FUNDS_TRANSFER_HIS, "scheduler_time", "00:00"),
+                Map.of("id", com.t24extractor.commons.Constants.AA_BILL_DETAILS, "scheduler_time", "00:00")));
+        when(repository.findRunningJobExecutions(org.mockito.ArgumentMatchers.anyString())).thenReturn(Set.of());
+
+        scheduler.runDynamicScheduler();
+
+        verify(operator).start(org.mockito.ArgumentMatchers.eq(ft), any(JobParameters.class));
+        verify(operator).start(org.mockito.ArgumentMatchers.eq(bill), any(JobParameters.class));
+    }
+
+    @Test
+    void unknownBatchIdFallsBackToTheGlobalJob() throws Exception {
+        when(jdbcTemplate.queryForList(any(String.class)))
+                .thenReturn(List.of(Map.of("id", "AUTRE.TABLE", "scheduler_time", "00:00")));
+        when(repository.findRunningJobExecutions("main")).thenReturn(Set.of());
+
+        scheduler.runDynamicScheduler();
+
+        // Un identifiant non reconnu déclenche l'extraction complète plutôt que rien.
+        verify(operator).start(org.mockito.ArgumentMatchers.eq(main), any(JobParameters.class));
+    }
+
+    @Test
+    void futureSchedulesAreNotLaunchedYet() throws Exception {
+        when(jdbcTemplate.queryForList(any(String.class)))
+                .thenReturn(List.of(Map.of("id", CUSTOMER, "scheduler_time", "23:59")));
+        when(repository.findRunningJobExecutions("customer")).thenReturn(Set.of());
+
+        scheduler.runDynamicScheduler();
+
+        // À moins d'être exécuté exactement à 23:59, rien ne doit partir.
+        if (!java.time.LocalTime.now().withSecond(0).withNano(0)
+                .isBefore(java.time.LocalTime.of(23, 59))) {
+            return;
+        }
+        verify(operator, never()).start(any(Job.class), any(JobParameters.class));
+    }
+
+    @Test
+    void wrapsSchedulerLaunchFailures() throws Exception {
+        when(jdbcTemplate.queryForList(any(String.class)))
+                .thenReturn(List.of(Map.of("id", CUSTOMER, "scheduler_time", "00:00")));
+        when(repository.findRunningJobExecutions("customer")).thenReturn(Set.of());
+        when(operator.start(any(Job.class), any(JobParameters.class)))
+                .thenThrow(new org.springframework.batch.core.launch.JobExecutionAlreadyRunningException("running"));
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                scheduler::runDynamicScheduler);
+    }
+
     private Job job(String name) {
         Job job = mock(Job.class);
         when(job.getName()).thenReturn(name);

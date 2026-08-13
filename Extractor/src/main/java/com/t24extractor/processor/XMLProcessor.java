@@ -20,6 +20,36 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Décode un XMLRECORD T24 en document JSON nommé et typé.
+ *
+ * <p>S'appuie sur le dictionnaire {@code Mongo_Standard_Selection} pour
+ * remplacer les balises anonymes ({@code c1}, {@code c2}…) par les noms de
+ * champs métier.
+ *
+ * <h2>Multivaluation T24</h2>
+ * T24 encode la répétition dans deux attributs : {@code m} (multivaleur) et
+ * {@code s} (sous-valeur). L'un comme l'autre peuvent manquer, et chaque
+ * combinaison a une signification :
+ * <table class="striped">
+ *   <caption>Interprétation des attributs</caption>
+ *   <thead><tr><th>Attributs</th><th>mvsequence</th><th>sequence</th></tr></thead>
+ *   <tbody>
+ *     <tr><td>{@code m} et {@code s}</td><td>{@code m}</td><td>{@code s}</td></tr>
+ *     <tr><td>{@code m} seul</td><td>{@code m}</td><td>1</td></tr>
+ *     <tr><td>{@code s} seul</td><td>1</td><td>{@code s}</td></tr>
+ *     <tr><td>aucun</td><td>1</td><td>1</td></tr>
+ *   </tbody>
+ * </table>
+ * Ces séquences sont conservées dans le JSON, puis éclatées en tables
+ * satellites par {@link com.t24extractor.tasklet.Json_Flattener} : elles
+ * rattachent chaque ligne fille à son enregistrement parent.
+ *
+ * <h2>Champs LOCAL.REF</h2>
+ * Les champs locaux sont regroupés dans un conteneur unique, repéré par
+ * {@code localRefPos}. Ils sont adressés par leur position ({@code m1},
+ * {@code m2}…) et peuvent être simples ou multivalués.
+ */
 @Component
 @StepScope
 public class XMLProcessor implements ItemProcessor<T24Table, com.alibaba.fastjson2.JSONObject> {
@@ -32,6 +62,18 @@ public class XMLProcessor implements ItemProcessor<T24Table, com.alibaba.fastjso
     @Setter
     String oracleTableName;
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Le document produit porte toujours {@code _id} (le RECID) et
+     * {@code ORIGINAL_ID}. Sur les tables historisées ({@code #HIS}, {@code #ARC}),
+     * {@code ORIGINAL_ID} est le RECID amputé de son numéro de version, ce qui
+     * permet de regrouper les versions d'un même enregistrement.
+     *
+     * @param t24TableItem enregistrement brut lu sur Oracle
+     * @return le document JSON prêt à être inséré en BI
+     * @throws Exception si le XMLRECORD est malformé
+     */
     @Override
     public com.alibaba.fastjson2.JSONObject process(final T24Table t24TableItem) throws Exception {
         ProcessorContext ctx = buildContext();
