@@ -4,6 +4,18 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
+/**
+ * Requête de réinitialisation de mot de passe à partir d'un jeton reçu par e-mail.
+ *
+ * <p>Le nouveau mot de passe doit compter de 8 à 128 caractères et contenir au moins une
+ * minuscule, une majuscule, un chiffre et un caractère spécial parmi {@code @$!%*?&}.
+ * La concordance entre {@code newPassword} et {@code confirmPassword} est contrôlée dans
+ * la couche service.</p>
+ *
+ * @param token           jeton de réinitialisation à usage unique, transmis par e-mail
+ * @param newPassword     nouveau mot de passe, soumis à la politique de complexité
+ * @param confirmPassword répétition du nouveau mot de passe
+ */
 public record ResetPasswordRequest(
 
         @NotBlank(message = "Token is required")

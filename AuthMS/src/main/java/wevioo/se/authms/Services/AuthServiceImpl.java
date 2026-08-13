@@ -1,7 +1,6 @@
 package wevioo.se.authms.Services;
 
 import jakarta.servlet.http.HttpServletRequest;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -37,21 +36,95 @@ import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 
+/**
+ * Implémentation de la logique métier d'authentification.
+ *
+ * <p>Orchestre les identifiants détenus par UserMS, les jetons persistés localement, la
+ * journalisation d'audit et les notifications par courriel.</p>
+ *
+ * <p>Principes de sécurité appliqués :</p>
+ * <ul>
+ *   <li>les jetons opaques ne sont stockés que sous forme d'empreinte ;</li>
+ *   <li>les jetons de rafraîchissement subissent une rotation, et la réutilisation d'un jeton
+ *       déjà consommé révoque toutes les sessions de l'utilisateur ;</li>
+ *   <li>tout changement de mot de passe invalide les sessions existantes ;</li>
+ *   <li>les messages d'erreur ne permettent pas de distinguer un compte inexistant d'un
+ *       mot de passe erroné.</li>
+ * </ul>
+ *
+ * @see AuthService
+ */
 @Slf4j
 @Service("authService")
-@RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class AuthServiceImpl implements AuthService {
 
+    /** Client d'accès aux identifiants détenus par UserMS. */
     private final UserServiceClient            userServiceClient;
+
+    /** Dépôt des jetons de rafraîchissement. */
     private final RefreshTokenRepository       refreshTokenRepo;
+
+    /** Dépôt des jetons de réinitialisation de mot de passe. */
     private final PasswordResetTokenRepository resetTokenRepo;
+
+    /** Service d'émission et de lecture des jetons d'accès JWT. */
     private final JwtService                   jwtService;
+
+    /** Encodeur employé pour vérifier et produire les empreintes de mots de passe. */
     private final PasswordEncoder              passwordEncoder;
+
+    /** Service de journalisation des évènements d'authentification. */
     private final AuditService                 auditService;
+
+    /** Service d'envoi des courriels liés aux mots de passe. */
     private final MailService                  mailService;
+
+    /** Configuration applicative : durées de validité et URL du front-end. */
     private final AppProperties                props;
 
+    /**
+     * Construit le service avec l'ensemble de ses collaborateurs.
+     *
+     * @param userServiceClient client d'accès aux identifiants détenus par UserMS
+     * @param refreshTokenRepo  dépôt des jetons de rafraîchissement
+     * @param resetTokenRepo    dépôt des jetons de réinitialisation de mot de passe
+     * @param jwtService        service d'émission et de lecture des jetons d'accès
+     * @param passwordEncoder   encodeur de mots de passe
+     * @param auditService      service de journalisation des évènements d'authentification
+     * @param mailService       service d'envoi des courriels
+     * @param props             configuration applicative
+     */
+    public AuthServiceImpl(UserServiceClient userServiceClient,
+                           RefreshTokenRepository refreshTokenRepo,
+                           PasswordResetTokenRepository resetTokenRepo,
+                           JwtService jwtService,
+                           PasswordEncoder passwordEncoder,
+                           AuditService auditService,
+                           MailService mailService,
+                           AppProperties props) {
+        this.userServiceClient = userServiceClient;
+        this.refreshTokenRepo  = refreshTokenRepo;
+        this.resetTokenRepo    = resetTokenRepo;
+        this.jwtService        = jwtService;
+        this.passwordEncoder   = passwordEncoder;
+        this.auditService      = auditService;
+        this.mailService       = mailService;
+        this.props             = props;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Vérifie successivement l'existence du compte, son activation et le mot de passe, puis
+     * émet un jeton d'accès ainsi qu'un jeton de rafraîchissement dont seule l'empreinte est
+     * conservée. Chaque échec est audité avec son motif exact, tandis que le message renvoyé
+     * au client reste identique dans tous les cas : le détail sert à l'analyse de sécurité,
+     * pas à l'appelant.</p>
+     *
+     * @throws BadCredentialsException si le compte est inconnu ou le mot de passe erroné
+     * @throws DisabledException       si le compte est désactivé
+     */
     @Override
     @Transactional
     public AuthResponse login(LoginRequest request, HttpServletRequest httpRequest) {
@@ -95,6 +168,12 @@ public class AuthServiceImpl implements AuthService {
                 creds.id(), creds.username(), creds.email(), creds.role());
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Un jeton introuvable n'est pas signalé comme une erreur : la session étant de toute
+     * façon close, l'opération est idempotente et peut être rejouée sans effet de bord.</p>
+     */
     @Override
     @Transactional
     public MessageResponse logout(String rawRefreshToken, HttpServletRequest httpRequest) {
@@ -107,6 +186,11 @@ public class AuthServiceImpl implements AuthService {
         return MessageResponse.of("Logged out successfully.");
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Révoque en une seule opération tous les jetons de rafraîchissement de l'utilisateur.</p>
+     */
     @Override
     @Transactional
     public MessageResponse logoutAll(UUID userId, HttpServletRequest httpRequest) {
@@ -116,6 +200,22 @@ public class AuthServiceImpl implements AuthService {
         return MessageResponse.of("All sessions terminated successfully.");
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Applique la rotation des jetons : l'ancien jeton est révoqué et un nouveau couple est
+     * émis. La présentation d'un jeton déjà révoqué signale une compromission probable — le
+     * jeton légitime ayant été rejoué par un tiers — et entraîne la révocation de toutes les
+     * sessions de l'utilisateur.</p>
+     *
+     * <p>Le compte est revalidé auprès de UserMS à chaque rafraîchissement : une désactivation
+     * intervenue entre-temps prend effet immédiatement.</p>
+     *
+     * @throws InvalidTokenException     si le jeton est inconnu ou si une réutilisation est détectée
+     * @throws TokenExpiredException     si le jeton est expiré
+     * @throws ResourceNotFoundException si le compte associé n'existe plus
+     * @throws DisabledException         si le compte a été désactivé
+     */
     @Override
     @Transactional
     public AuthResponse refresh(RefreshTokenRequest request, HttpServletRequest httpRequest) {
@@ -172,6 +272,13 @@ public class AuthServiceImpl implements AuthService {
                 creds.id(), creds.username(), creds.email(), creds.role());
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Invalide les demandes antérieures encore actives, émet un jeton à usage unique et en
+     * envoie le lien par courriel. Le message retourné est constant, que l'adresse corresponde
+     * ou non à un compte : l'API ne doit pas permettre de découvrir quels comptes existent.</p>
+     */
     @Override
     @Transactional
     public MessageResponse forgotPassword(ForgotPasswordRequest request, HttpServletRequest httpRequest) {
@@ -204,6 +311,17 @@ public class AuthServiceImpl implements AuthService {
         return MessageResponse.of(msg);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Valide le jeton, met le mot de passe à jour auprès de UserMS, marque le jeton comme
+     * consommé et révoque toutes les sessions en cours : une réinitialisation fait suite à un
+     * oubli ou à une compromission, et les sessions ouvertes ne doivent pas y survivre.</p>
+     *
+     * @throws ValidationException   si les deux mots de passe saisis diffèrent
+     * @throws InvalidTokenException si le jeton est inconnu ou déjà consommé
+     * @throws TokenExpiredException si le jeton est expiré
+     */
     @Override
     @Transactional
     public MessageResponse resetPassword(ResetPasswordRequest request, HttpServletRequest httpRequest) {
@@ -242,6 +360,17 @@ public class AuthServiceImpl implements AuthService {
         return MessageResponse.of("Password reset successfully. Please login with your new password.");
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Vérifie le mot de passe actuel, enregistre le nouveau auprès de UserMS, révoque les
+     * sessions en cours et notifie l'utilisateur par courriel — ce qui lui permet de réagir
+     * si le changement n'émane pas de lui.</p>
+     *
+     * @throws ValidationException       si les deux mots de passe saisis diffèrent
+     * @throws ResourceNotFoundException si le compte n'existe pas
+     * @throws BadCredentialsException   si le mot de passe actuel est erroné
+     */
     @Override
     @Transactional
     public MessageResponse changePassword(UUID userId, ChangePasswordRequest request,
@@ -269,6 +398,13 @@ public class AuthServiceImpl implements AuthService {
         return MessageResponse.of("Password changed successfully. Please login again.");
     }
 
+    /**
+     * Purge quotidiennement les jetons devenus inutiles.
+     *
+     * <p>Exécutée chaque jour à minuit, cette tâche supprime définitivement les jetons de
+     * rafraîchissement expirés ou révoqués, ainsi que les jetons de réinitialisation expirés
+     * ou consommés, afin de contenir la croissance des tables.</p>
+     */
     @Scheduled(cron = "0 0 0 * * *")
     @Transactional
     public void cleanupExpiredTokens() {
@@ -277,6 +413,12 @@ public class AuthServiceImpl implements AuthService {
         log.info("Scheduled token cleanup completed");
     }
 
+    /**
+     * Convertit les identifiants retournés par UserMS en principal de sécurité.
+     *
+     * @param creds identifiants issus de UserMS
+     * @return le principal correspondant, porteur de l'empreinte du mot de passe
+     */
     private UserPrincipal toPrincipal(UserCredentials creds) {
         return UserPrincipal.builder()
                 .userId(creds.id())

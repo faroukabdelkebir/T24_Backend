@@ -4,18 +4,41 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
-import lombok.RequiredArgsConstructor;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Async;
 
+/**
+ * Service d'envoi des courriels liés à la gestion des mots de passe.
+ *
+ * <p>Les envois sont asynchrones et leurs échecs sont journalisés sans être propagés : une
+ * panne du serveur de messagerie ne doit pas faire échouer l'opération d'authentification
+ * sous-jacente.</p>
+ */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class MailService {
 
+    /** Émetteur de courriels configuré par Spring. */
     private final JavaMailSender mailSender;
 
+    /**
+     * Construit le service avec l'émetteur de courriels.
+     *
+     * @param mailSender émetteur de courriels configuré par Spring
+     */
+    public MailService(JavaMailSender mailSender) {
+        this.mailSender = mailSender;
+    }
+
+    /**
+     * Envoie le courriel HTML contenant le lien de réinitialisation de mot de passe.
+     *
+     * @param to                adresse du destinataire
+     * @param username          nom d'utilisateur, repris dans le corps du message
+     * @param resetLink         lien de réinitialisation, présenté sous forme de bouton et d'URL brute
+     * @param expirationMinutes durée de validité du lien, annoncée au destinataire
+     */
     @Async
     public void sendPasswordResetEmail(String to, String username,
                                        String resetLink, int expirationMinutes) {
@@ -34,6 +57,15 @@ public class MailService {
         }
     }
 
+    /**
+     * Notifie l'utilisateur que son mot de passe vient d'être modifié.
+     *
+     * <p>Mesure de sécurité : elle permet à la personne de réagir si le changement n'émane
+     * pas d'elle.</p>
+     *
+     * @param to       adresse du destinataire
+     * @param username nom d'utilisateur, repris dans le corps du message
+     */
     @Async
     public void sendPasswordChangedNotification(String to, String username) {
         try {
@@ -51,6 +83,17 @@ public class MailService {
     }
 
 
+    /**
+     * Compose le corps HTML du courriel de réinitialisation.
+     *
+     * <p>Le lien apparaît deux fois — sous forme de bouton et d'URL en clair — afin de rester
+     * exploitable dans les clients de messagerie qui n'affichent pas les styles.</p>
+     *
+     * @param username          nom d'utilisateur affiché dans le message
+     * @param resetLink         lien de réinitialisation
+     * @param expirationMinutes durée de validité annoncée
+     * @return le corps du courriel au format HTML
+     */
     private String buildResetHtml(String username, String resetLink, int expirationMinutes) {
         return """
             <!DOCTYPE html>
@@ -87,6 +130,12 @@ public class MailService {
             """.formatted(username, resetLink, expirationMinutes, resetLink, resetLink);
     }
 
+    /**
+     * Compose le corps HTML de la notification de changement de mot de passe.
+     *
+     * @param username nom d'utilisateur affiché dans le message
+     * @return le corps du courriel au format HTML
+     */
     private String buildChangedHtml(String username) {
         return """
             <!DOCTYPE html>
