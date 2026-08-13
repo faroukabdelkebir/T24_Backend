@@ -41,21 +41,21 @@ def check_status():
         import pyodbc
         conn_str = (
             f"DRIVER={{ODBC Driver 17 for SQL Server}};"
-            f"SERVER={settings.MSSQL_HOST},{settings.MSSQL_PORT};"
-            f"DATABASE={settings.MSSQL_DB};"
-            f"UID={settings.MSSQL_USER};"
-            f"PWD={settings.MSSQL_PASS};"
+            f"SERVER={settings.BI_HOST},{settings.BI_PORT};"
+            f"DATABASE={settings.BI_DB};"
+            f"UID={settings.BI_USER};"
+            f"PWD={settings.BI_PASS};"
         )
         conn = pyodbc.connect(conn_str, timeout=5)
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES")
         nb = cursor.fetchone()[0]
         conn.close()
-        print(f"\n[OK] SQL Server accessible ({settings.MSSQL_HOST},{settings.MSSQL_PORT})")
-        print(f"     Base : {settings.MSSQL_DB} — {nb} tables")
+        print(f"\n[OK] SQL Server accessible ({settings.BI_HOST},{settings.BI_PORT})")
+        print(f"     Base : {settings.BI_DB} — {nb} tables")
     except Exception as e:
         print(f"\n[KO] SQL Server non accessible : {e}")
-        print(f"     MSSQL_HOST={settings.MSSQL_HOST}, PORT={settings.MSSQL_PORT}, DB={settings.MSSQL_DB}")
+        print(f"     BI_HOST={settings.BI_HOST}, PORT={settings.BI_PORT}, DB={settings.BI_DB}")
 
     print()
 

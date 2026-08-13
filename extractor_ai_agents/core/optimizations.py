@@ -164,8 +164,8 @@ class FallbackScorer:
 
         conn = pyodbc.connect(
             f"DRIVER={{ODBC Driver 17 for SQL Server}};"
-            f"SERVER={settings.MSSQL_HOST};DATABASE={settings.MSSQL_DB};"
-            f"UID={settings.MSSQL_USER};PWD={settings.MSSQL_PASS};"
+            f"SERVER={settings.BI_HOST},{settings.BI_PORT};DATABASE={settings.BI_DB};"
+            f"UID={settings.BI_USER};PWD={settings.BI_PASS};"
         )
         try:
             cur = conn.cursor()
