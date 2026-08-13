@@ -113,6 +113,18 @@
                 </configuration>
             </plugin>
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <configuration>
+                    <!-- Lombok génère les constructeurs après coup : javadoc ne les voit
+                         pas et signalerait un constructeur par défaut non documenté sur
+                         chaque bean. Les autres contrôles (références, syntaxe, HTML)
+                         restent actifs. -->
+                    <doclint>all,-missing</doclint>
+                    <notimestamp>true</notimestamp>
+                </configuration>
+            </plugin>
+            <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>

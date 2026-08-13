@@ -5,6 +5,33 @@ import jakarta.validation.constraints.*;
 import lombok.Builder;
 import wevioo.se.userms.Entities.Role;
 
+/**
+ * Charge utile de création d'un utilisateur.
+ *
+ * <p>Tous les champs obligatoires sont validés par Jakarta Bean Validation avant
+ * d'atteindre la couche service : une charge utile invalide produit une réponse
+ * {@code 422 Unprocessable Entity} détaillant les erreurs champ par champ, via
+ * {@link wevioo.se.userms.Exceptions.GlobalExceptionHandler}.</p>
+ *
+ * <p>Le mot de passe est transmis en clair sur le canal HTTPS puis encodé par le
+ * service avant enregistrement ; il n'est jamais stocké tel quel.</p>
+ *
+ * <p>Les propriétés JSON inconnues sont ignorées, ce qui permet à un client
+ * d'envoyer des champs supplémentaires sans provoquer d'erreur.</p>
+ *
+ * @param username  nom de connexion souhaité : 3 à 60 caractères, limités aux
+ *                  lettres, chiffres, points, tirets et tirets bas ; doit être
+ *                  disponible
+ * @param email     adresse e-mail valide de 150 caractères maximum ; doit être
+ *                  disponible et sera normalisée en minuscules
+ * @param password  mot de passe en clair : 8 à 128 caractères, comprenant au
+ *                  moins une minuscule, une majuscule, un chiffre et un
+ *                  caractère spécial parmi {@code @$!%*?&}
+ * @param firstName prénom, facultatif, 80 caractères maximum
+ * @param lastName  nom de famille, facultatif, 80 caractères maximum
+ * @param role      rôle fonctionnel à attribuer au compte, obligatoire
+ * @see wevioo.se.userms.Services.UserService#createUser(CreateUserRequest)
+ */
 @Builder
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record CreateUserRequest(
