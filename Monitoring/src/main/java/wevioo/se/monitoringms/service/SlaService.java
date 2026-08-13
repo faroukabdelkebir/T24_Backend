@@ -18,40 +18,49 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Suivi des SLAs — chaque job doit se terminer avant une heure définie.
+ * Suivi du respect des fenêtres SLA : chaque traitement doit s'achever avant
+ * une heure limite quotidienne.
  *
- * Configuration dans application.properties :
- *   monitor.sla.customer=07:00
- *   monitor.sla.ft-his=07:30
- *   monitor.sla.aa-bill=07:30
- *   monitor.sla.main=08:00
+ * <p>Les heures limites sont définies dans {@code application.properties} sous
+ * les clés {@code monitor.sla.customer}, {@code monitor.sla.ft-his},
+ * {@code monitor.sla.aa-bill} et {@code monitor.sla.main}.</p>
  *
- * Un traitement dépasse son SLA si son heure de fin dépasse l'heure limite.
- * S'il est toujours en cours après cette heure, le SLA est également dépassé.
+ * <p>Une fenêtre est dépassée dans deux cas : le traitement s'est terminé
+ * après l'heure limite, ou il tourne encore alors que celle-ci est passée.
+ * Un traitement jamais exécuté n'est pas considéré en dépassement, l'absence
+ * d'exécution relevant d'un autre diagnostic.</p>
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class SlaService {
 
+    /** Accès aux métadonnées Spring Batch. */
     private final BatchExecutionRepository batchRepo;
 
+    /** Heure limite du traitement du référentiel clients. */
     @Value("${monitor.sla.customer:07:00}")
     private String slaCustomer;
 
+    /** Heure limite du traitement des virements historisés. */
     @Value("${monitor.sla.ft-his:07:30}")
     private String slaFtHis;
 
+    /** Heure limite du traitement du détail de facturation. */
     @Value("${monitor.sla.aa-bill:07:30}")
     private String slaAaBill;
 
+    /** Heure limite du traitement principal, appliquée aussi par défaut. */
     @Value("${monitor.sla.main:08:00}")
     private String slaMain;
 
+    /** Format attendu des heures limites en configuration. */
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
 
     /**
-     * Statut SLA pour tous les jobs configurés.
+     * Évalue le respect des fenêtres SLA pour tous les traitements surveillés.
+     *
+     * @return un état par traitement, dans l'ordre de déclaration
      */
     public List<SlaStatusDto> getAllSlaStatuses() {
         Map<String, String> slaMap = buildSlaMap();
@@ -62,7 +71,11 @@ public class SlaService {
     }
 
     /**
-     * Statut SLA pour un job spécifique.
+     * Évalue le respect de la fenêtre SLA d'un traitement.
+     *
+     * @param jobName nom logique du traitement
+     * @return l'état correspondant ; un traitement non configuré se voit
+     *         appliquer l'heure limite par défaut de 8 h 00
      */
     public SlaStatusDto getSlaStatus(String jobName) {
         Map<String, String> slaMap = buildSlaMap();
@@ -72,6 +85,12 @@ public class SlaService {
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
+    /**
+     * Associe chaque traitement surveillé à son heure limite configurée.
+     *
+     * @return la correspondance, dans un ordre d'insertion stable pour que
+     *         l'affichage reste prévisible
+     */
     private Map<String, String> buildSlaMap() {
         Map<String, String> map = new LinkedHashMap<>();
         map.put("T24",               slaMain);
@@ -81,6 +100,20 @@ public class SlaService {
         return map;
     }
 
+    /**
+     * Confronte la dernière exécution d'un traitement à son heure limite.
+     *
+     * <p>Trois situations sont distinguées : une exécution réussie, comparée
+     * à l'échéance ; une exécution encore en cours, en dépassement si
+     * l'échéance est déjà passée ; l'absence d'exécution, signalée sans
+     * constituer un dépassement.</p>
+     *
+     * @param jobName    nom logique du traitement
+     * @param slaTimeStr heure limite au format {@code HH:mm}
+     * @return l'état de respect de la fenêtre
+     * @throws java.time.format.DateTimeParseException si l'heure configurée
+     *         ne respecte pas le format attendu
+     */
     private SlaStatusDto computeSlaStatus(String jobName, String slaTimeStr) {
         LocalTime deadline = LocalTime.parse(slaTimeStr, TIME_FMT);
 

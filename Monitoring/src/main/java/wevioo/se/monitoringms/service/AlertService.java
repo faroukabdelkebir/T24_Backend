@@ -14,50 +14,94 @@ import wevioo.se.monitoringms.repository.SchemaRepository;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Moteur d'alertes — évalue les conditions d'alerte et maintient
- * une liste en mémoire des alertes actives non résolues.
+ * Moteur d'alertes : évalue périodiquement les conditions de surveillance et
+ * maintient en mémoire la liste des alertes actives.
  *
- * Types d'alertes :
- *   JOB_FAILURE          → un job vient d'échouer
- *   CONSECUTIVE_FAILURE  → N échecs consécutifs sur le même job
- *   SLA_BREACH           → job terminé après la deadline SLA
- *   RECONCILIATION_KO    → écart Oracle / SQL Server hors tolérance
- *   SCHEMA_DRIFT         → modifications récentes du schéma
+ * <p>Familles d'alertes produites :</p>
+ * <ul>
+ *   <li>{@code JOB_FAILURE} — un traitement vient d'échouer ;</li>
+ *   <li>{@code CONSECUTIVE_FAILURE} — le seuil d'échecs répétés est atteint ;</li>
+ *   <li>{@code SLA_BREACH} — un traitement a dépassé son heure limite ;</li>
+ *   <li>{@code RECONCILIATION_KO} — l'écart Oracle / SQL Server sort de la tolérance ;</li>
+ *   <li>{@code SCHEMA_DRIFT} — le schéma T24 a été modifié récemment.</li>
+ * </ul>
+ *
+ * <p>Les alertes ne sont pas persistées : elles vivent dans une carte en
+ * mémoire, reconstruite à chaque évaluation. Un redémarrage vide donc la
+ * liste, qui se reforme à l'évaluation suivante si les conditions
+ * persistent.</p>
+ *
+ * <p>L'évaluation est idempotente : chaque passage réinsère les alertes dont
+ * la condition tient toujours et retire celles dont la cause a disparu.</p>
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class AlertService {
 
-    // Codes de sévérité (la traduction se fait côté client).
+    /** Gravité la plus élevée ; la traduction est faite côté client. */
     private static final String SEVERITY_CRITICAL = "CRITICAL";
+
+    /** Gravité intermédiaire, signalant une dérive à surveiller. */
     private static final String SEVERITY_WARNING  = "WARNING";
+
+    /** Gravité informative, sans action immédiate attendue. */
     private static final String SEVERITY_INFO     = "INFO";
 
-    /** Statut métier (FR) renvoyé par ReconciliationService pour le cas « avertissement ». */
+    /**
+     * Statut renvoyé par {@link ReconciliationService} pour un écart modéré.
+     * Comparé tel quel car le service produit des libellés en français.
+     */
     private static final String RECON_STATUS_WARNING = "Avertissement";
 
+    /** Accès aux métadonnées Spring Batch, pour le décompte des échecs. */
     private final BatchExecutionRepository batchRepo;
+
+    /** Source des écarts de réconciliation. */
     private final ReconciliationService     reconciliationService;
+
+    /** Source des dépassements de fenêtre SLA. */
     private final SlaService                slaService;
+
+    /** Accès à l'audit de schéma, pour la détection des dérives. */
     private final SchemaRepository schemaRepo;
 
+    /** Nombre d'échecs à partir duquel l'alerte passe en gravité critique. */
     @Value("${monitor.alert.consecutive-failure-threshold:3}")
     private int consecutiveFailureThreshold;
 
-    /** Stockage en mémoire des alertes actives (clé = jobName + type). */
+    /**
+     * Alertes actives, indexées par leur clé stable. La carte est concurrente :
+     * l'évaluation planifiée y écrit pendant que les requêtes HTTP la lisent.
+     */
     private final Map<String, AlertDto> activeAlertsMap = new ConcurrentHashMap<>();
 
     // ── Accès public ─────────────────────────────────────────────────────────
 
+    /**
+     * Retourne les alertes actuellement actives.
+     *
+     * @return une copie de la liste des alertes, sûre à parcourir même si
+     *         l'évaluation planifiée survient entre-temps
+     */
     public List<AlertDto> getActiveAlerts() {
         return new ArrayList<>(activeAlertsMap.values());
     }
 
+    /**
+     * Acquitte une alerte et la retire de la liste active.
+     *
+     * <p>L'acquittement n'est pas définitif : si la condition d'origine
+     * persiste, la prochaine évaluation recréera l'alerte.</p>
+     *
+     * @param alertKey clé de l'alerte à acquitter ; une clé inconnue est
+     *                 ignorée sans erreur
+     */
     public void resolveAlert(String alertKey) {
         activeAlertsMap.computeIfPresent(alertKey, (k, v) -> {
             v.setResolved(true);
@@ -69,7 +113,11 @@ public class AlertService {
     // ── Évaluation périodique ────────────────────────────────────────────────
 
     /**
-     * Évaluation toutes les minutes — rafraîchit les alertes actives.
+     * Réévalue l'ensemble des conditions d'alerte.
+     *
+     * <p>Déclenchée automatiquement chaque minute par défaut, la cadence étant
+     * pilotée par la propriété {@code extractor.scheduler.poll-ms}. Chaque
+     * famille est évaluée indépendamment et met à jour la liste active.</p>
      */
     @Scheduled(fixedDelayString = "${extractor.scheduler.poll-ms:60000}")
     public void evaluateAlerts() {
@@ -82,6 +130,13 @@ public class AlertService {
 
     // ── Évaluation des jobs ──────────────────────────────────────────────────
 
+    /**
+     * Évalue l'état d'échec des traitements surveillés.
+     *
+     * <p>Trois issues par traitement : au-delà du seuil configuré l'alerte est
+     * critique, un échec isolé produit un simple avertissement, et l'absence
+     * d'échec purge les deux alertes éventuellement présentes.</p>
+     */
     private void evaluateJobFailures() {
         List<String> jobNames = List.of("T24", "CUSTOMER.JOB", "AA.BILL.DETAILS.JOB", "FT.HIS.JOB");
 
@@ -124,6 +179,12 @@ public class AlertService {
 
     // ── SLA ──────────────────────────────────────────────────────────────────
 
+    /**
+     * Évalue le respect des fenêtres SLA.
+     *
+     * <p>Un dépassement de plus d'une heure est jugé critique ; en deçà,
+     * l'alerte reste un avertissement.</p>
+     */
     private void evaluateSlaBreaches() {
         for (SlaStatusDto sla : slaService.getAllSlaStatuses()) {
             String key = "SLA_BREACH_" + sla.getJobName();
@@ -148,6 +209,14 @@ public class AlertService {
 
     // ── Réconciliation ───────────────────────────────────────────────────────
 
+    /**
+     * Évalue les écarts de réconciliation Oracle ↔ SQL Server.
+     *
+     * <p>Une table non conforme déclenche une alerte critique, un simple
+     * avertissement une alerte de moindre gravité ; une table conforme purge
+     * l'alerte existante. Le taux est formaté en {@link Locale#ROOT} pour que
+     * le séparateur décimal ne dépende pas de la locale du serveur.</p>
+     */
     private void evaluateReconciliation() {
         for (ReconciliationDto r : reconciliationService.getLatestReconciliation()) {
             String key = "RECONCILIATION_KO_" + r.getTableName();
@@ -163,7 +232,7 @@ public class AlertService {
                                 "table", r.getTableName(),
                                 "oracle", r.getOracleCount(),
                                 "sql", r.getSqlServerCount(),
-                                "rate", String.format("%.1f", r.getReconciliationRate())))
+                                "rate", String.format(Locale.ROOT, "%.1f", r.getReconciliationRate())))
                         .triggeredAt(LocalDateTime.now())
                         .resolved(false)
                         .build());
@@ -176,7 +245,7 @@ public class AlertService {
                         .messageKey("alerts.msg.reconciliationWarn")
                         .params(Map.of(
                                 "table", r.getTableName(),
-                                "rate", String.format("%.1f", r.getReconciliationRate())))
+                                "rate", String.format(Locale.ROOT, "%.1f", r.getReconciliationRate())))
                         .triggeredAt(LocalDateTime.now())
                         .resolved(false)
                         .build());
@@ -188,6 +257,14 @@ public class AlertService {
 
     // ── Schema drift ─────────────────────────────────────────────────────────
 
+    /**
+     * Signale les modifications récentes du dictionnaire de schéma.
+     *
+     * <p>La fenêtre d'observation est de vingt-quatre heures. L'alerte reste
+     * informative : une évolution de schéma n'est pas une anomalie en soi,
+     * mais elle explique souvent l'apparition ou la disparition d'indicateurs
+     * analytiques.</p>
+     */
     private void evaluateSchemaDrift() {
         int drifts = schemaRepo.countRecentDrifts(1); // dernières 24h
         String key = "SCHEMA_DRIFT";

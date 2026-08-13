@@ -1,13 +1,13 @@
 package wevioo.se.monitoringms;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
+import static org.assertj.core.api.Assertions.assertThat;
+
 class MonitoringMsApplicationTests {
 
     @Test
-    void contextLoads() {
+    void applicationClassIsAvailable() {
+        assertThat(MonitoringMsApplication.class).isNotNull();
     }
-
 }

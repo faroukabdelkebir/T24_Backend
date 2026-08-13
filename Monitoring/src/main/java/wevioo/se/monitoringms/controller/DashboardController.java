@@ -25,8 +25,14 @@ import java.util.List;
 @Tag(name = "Tableau de bord", description = "Vue d'ensemble du processus d'extraction T24")
 public class DashboardController {
 
+    /** Service d'agrégation des données du tableau de bord. */
     private final DashboardService dashboardService;
 
+    /**
+     * Retourne la vue d'ensemble du processus d'extraction.
+     *
+     * @return le résumé complet, toujours avec le statut {@code 200}
+     */
     @GetMapping("/summary")
     @Operation(summary = "Résumé complet du tableau de bord",
             description = "Retourne les traitements en cours, les indicateurs sur 7 jours, les alertes actives et le dernier statut COB.")
@@ -34,6 +40,11 @@ public class DashboardController {
         return ResponseEntity.ok(dashboardService.getSummary());
     }
 
+    /**
+     * Retourne les traitements actuellement en cours.
+     *
+     * @return les exécutions actives, ou un tableau vide si aucune ne tourne
+     */
     @GetMapping("/jobs/live")
     @Operation(summary = "Traitements actuellement en cours d'exécution")
     public ResponseEntity<List<JobExecutionDto>> getLiveJobs() {

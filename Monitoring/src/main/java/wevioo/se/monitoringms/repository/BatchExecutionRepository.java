@@ -13,21 +13,31 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Accès en lecture aux tables Spring Batch Metadata dans SQL Server.
+ * Accès en lecture aux tables de métadonnées Spring Batch hébergées dans
+ * SQL Server.
  *
- * Tables utilisées :
- *   - BATCH_JOB_INSTANCE
- *   - BATCH_JOB_EXECUTION
- *   - BATCH_STEP_EXECUTION
+ * <p>Tables interrogées : {@code BATCH_JOB_INSTANCE},
+ * {@code BATCH_JOB_EXECUTION} et {@code BATCH_STEP_EXECUTION}. Ces tables
+ * appartiennent au microservice d'extraction ; ce repository les consulte
+ * sans jamais les modifier.</p>
+ *
+ * <p>Le SQL est spécifique à SQL Server : pagination {@code OFFSET … FETCH
+ * NEXT}, fonctions {@code DATEADD} et {@code GETDATE}. Un changement de moteur
+ * imposerait de réécrire ces requêtes.</p>
+ *
+ * @see wevioo.se.monitoringms.model.BatchJobExecution
+ * @see wevioo.se.monitoringms.model.BatchStepExecution
  */
 @Repository
 @RequiredArgsConstructor
 public class BatchExecutionRepository {
 
+    /** Gabarit JDBC pointant sur la base décisionnelle SQL Server. */
     private final JdbcTemplate jdbc;
 
     // ── RowMappers ──────────────────────────────────────────────────────────
 
+    /** Convertit une ligne de la jointure exécution × instance en modèle. */
     private static final RowMapper<BatchJobExecution> JOB_EXEC_MAPPER = (rs, row) ->
             BatchJobExecution.builder()
                     .jobExecutionId(rs.getLong("JOB_EXECUTION_ID"))
@@ -43,6 +53,7 @@ public class BatchExecutionRepository {
                     .lastUpdated(toLocalDateTime(rs.getTimestamp("LAST_UPDATED")))
                     .build();
 
+    /** Convertit une ligne de {@code BATCH_STEP_EXECUTION} en modèle. */
     private static final RowMapper<BatchStepExecution> STEP_EXEC_MAPPER = (rs, row) ->
             BatchStepExecution.builder()
                     .stepExecutionId(rs.getLong("STEP_EXECUTION_ID"))
@@ -68,6 +79,12 @@ public class BatchExecutionRepository {
 
     // ── Queries ─────────────────────────────────────────────────────────────
 
+    /**
+     * Projection commune à toutes les recherches d'exécutions : la jointure
+     * avec {@code BATCH_JOB_INSTANCE} apporte le nom du traitement, absent de
+     * la table d'exécution. Les clauses de filtrage et de tri sont concaténées
+     * par les méthodes appelantes.
+     */
     private static final String BASE_JOB_SELECT = """
         SELECT je.JOB_EXECUTION_ID, je.JOB_INSTANCE_ID, je.VERSION,
                je.CREATE_TIME, je.START_TIME, je.END_TIME,
@@ -78,7 +95,10 @@ public class BatchExecutionRepository {
         """;
 
     /**
-     * Jobs actuellement en cours d'exécution (STATUS = 'STARTED').
+     * Recherche les traitements actuellement actifs.
+     *
+     * @return les exécutions au statut {@code STARTED} ou {@code STARTING},
+     *         de la plus récemment démarrée à la plus ancienne
      */
     public List<BatchJobExecution> findRunning() {
         return jdbc.query(
@@ -87,7 +107,10 @@ public class BatchExecutionRepository {
     }
 
     /**
-     * Historique paginé — tous jobs, du plus récent au plus ancien.
+     * Recherche les dernières exécutions, tous traitements confondus.
+     *
+     * @param limit nombre maximal de lignes à ramener
+     * @return les exécutions les plus récentes, du plus récent au plus ancien
      */
     public List<BatchJobExecution> findRecent(int limit) {
         return jdbc.query(
@@ -96,7 +119,10 @@ public class BatchExecutionRepository {
     }
 
     /**
-     * Jobs des N derniers jours.
+     * Recherche les exécutions créées sur une fenêtre glissante.
+     *
+     * @param days profondeur de la fenêtre, en jours comptés depuis maintenant
+     * @return les exécutions de la période, du plus récent au plus ancien
      */
     public List<BatchJobExecution> findByDays(int days) {
         return jdbc.query(
@@ -105,7 +131,12 @@ public class BatchExecutionRepository {
     }
 
     /**
-     * Exécutions d'un job spécifique par nom, paginées.
+     * Recherche l'historique d'un traitement donné.
+     *
+     * @param jobName nom logique du traitement, par exemple {@code CUSTOMER.JOB}
+     * @param limit   nombre maximal de lignes à ramener
+     * @return les exécutions de ce traitement, du plus récent au plus ancien ;
+     *         liste vide si le nom est inconnu
      */
     public List<BatchJobExecution> findByJobName(String jobName, int limit) {
         return jdbc.query(
@@ -114,7 +145,11 @@ public class BatchExecutionRepository {
     }
 
     /**
-     * Une exécution par ID.
+     * Recherche une exécution par son identifiant.
+     *
+     * @param jobExecutionId identifiant Spring Batch de l'exécution
+     * @return l'exécution correspondante, ou {@link Optional#empty()} si
+     *         l'identifiant est inconnu
      */
     public Optional<BatchJobExecution> findById(long jobExecutionId) {
         List<BatchJobExecution> result = jdbc.query(
@@ -124,7 +159,11 @@ public class BatchExecutionRepository {
     }
 
     /**
-     * Steps d'une exécution de job.
+     * Recherche les étapes d'une exécution.
+     *
+     * @param jobExecutionId identifiant Spring Batch de l'exécution
+     * @return les étapes dans leur ordre chronologique de création ; liste vide
+     *         si l'exécution est inconnue ou n'a produit aucune étape
      */
     public List<BatchStepExecution> findStepsByJobExecutionId(long jobExecutionId) {
         return jdbc.query(
@@ -142,7 +181,13 @@ public class BatchExecutionRepository {
     }
 
     /**
-     * Nombre de jobs COMPLETED aujourd'hui.
+     * Compte les exécutions terminées avec succès depuis minuit.
+     *
+     * <p>Le décompte s'appuie sur la date de fin, ce qui exclut les
+     * traitements démarrés hier et toujours en cours.</p>
+     *
+     * @return le nombre d'exécutions au statut {@code COMPLETED} ce jour,
+     *         ou {@code 0} si l'agrégat n'a pu être calculé
      */
     public int countCompletedToday() {
         Integer count = jdbc.queryForObject(
@@ -152,7 +197,14 @@ public class BatchExecutionRepository {
     }
 
     /**
-     * Nombre de jobs FAILED aujourd'hui.
+     * Compte les exécutions en échec depuis minuit.
+     *
+     * <p>Le décompte s'appuie sur la date de dernière modification et non sur
+     * la date de fin : cette dernière n'est pas toujours renseignée lorsqu'un
+     * traitement échoue brutalement.</p>
+     *
+     * @return le nombre d'exécutions au statut {@code FAILED} ce jour,
+     *         ou {@code 0} si l'agrégat n'a pu être calculé
      */
     public int countFailedToday() {
         Integer count = jdbc.queryForObject(
@@ -162,7 +214,15 @@ public class BatchExecutionRepository {
     }
 
     /**
-     * Taux de succès sur N jours : COMPLETED / (COMPLETED + FAILED) * 100.
+     * Calcule le taux de succès sur une fenêtre glissante, soit
+     * {@code COMPLETED / (COMPLETED + FAILED) × 100}.
+     *
+     * <p>Les exécutions encore en cours sont exclues du calcul. En l'absence
+     * totale d'exécution terminée, la requête retourne 100 % : aucun échec
+     * n'ayant été constaté, la période est considérée comme saine.</p>
+     *
+     * @param days profondeur de la fenêtre, en jours
+     * @return le taux en pourcentage, ou {@code 0} si l'agrégat n'a pu être calculé
      */
     public double computeSuccessRate(int days) {
         Double rate = jdbc.queryForObject(
@@ -180,7 +240,11 @@ public class BatchExecutionRepository {
     }
 
     /**
-     * Statistiques agrégées par job sur N jours.
+     * Agrège les exécutions par traitement sur une fenêtre glissante.
+     *
+     * @param days profondeur de la fenêtre, en jours
+     * @return un agrégat par traitement ayant au moins une exécution terminée
+     *         sur la période
      */
     public List<JobAggregate> computeJobAggregates(int days) {
         return jdbc.query(
@@ -207,7 +271,14 @@ public class BatchExecutionRepository {
     }
 
     /**
-     * Trend journalier : volume de lignes lues/écrites par jour sur N jours.
+     * Agrège la volumétrie jour par jour sur une fenêtre glissante.
+     *
+     * <p>La jointure avec les étapes est nécessaire pour obtenir les
+     * compteurs de lignes : une exécution sans étape n'apparaît donc pas dans
+     * le résultat.</p>
+     *
+     * @param days profondeur de la fenêtre, en jours
+     * @return un agrégat par journée, du plus récent au plus ancien
      */
     public List<DailyAggregate> computeDailyTrend(int days) {
         return jdbc.query(
@@ -234,7 +305,14 @@ public class BatchExecutionRepository {
     }
 
     /**
-     * Dernière exécution réussie d'un job par nom.
+     * Recherche la dernière exécution réussie d'un traitement.
+     *
+     * <p>Sert à déterminer la date métier active et à évaluer le respect des
+     * fenêtres SLA.</p>
+     *
+     * @param jobName nom logique du traitement
+     * @return la dernière exécution {@code COMPLETED}, ou
+     *         {@link Optional#empty()} si le traitement n'a jamais abouti
      */
     public Optional<BatchJobExecution> findLastSuccessfulByJobName(String jobName) {
         List<BatchJobExecution> result = jdbc.query(
@@ -248,7 +326,15 @@ public class BatchExecutionRepository {
     }
 
     /**
-     * Nombre d'échecs consécutifs pour un job donné.
+     * Compte les échecs d'un traitement parmi ses dernières exécutions.
+     *
+     * <p>La fenêtre d'observation est bornée aux dix dernières exécutions
+     * terminées. Le décompte porte sur le nombre total d'échecs dans cette
+     * fenêtre, sans exiger qu'ils se suivent : c'est ce compteur qui alimente
+     * le seuil d'alerte de défaillance répétée.</p>
+     *
+     * @param jobName nom logique du traitement
+     * @return le nombre d'échecs observés, entre {@code 0} et {@code 10}
      */
     public int countConsecutiveFailures(String jobName) {
         Integer count = jdbc.queryForObject(
@@ -268,6 +354,15 @@ public class BatchExecutionRepository {
 
     // ── Inner DTOs pour les agrégats ────────────────────────────────────────
 
+    /**
+     * Agrégat des exécutions d'un traitement sur la fenêtre analysée.
+     *
+     * @param jobName         nom logique du traitement
+     * @param totalExecutions nombre d'exécutions terminées
+     * @param completed       nombre d'exécutions réussies
+     * @param failed          nombre d'exécutions en échec
+     * @param avgDurationSec  durée moyenne en secondes, {@code 0} si non calculable
+     */
     public record JobAggregate(
             String jobName,
             int totalExecutions,
@@ -275,11 +370,25 @@ public class BatchExecutionRepository {
             int failed,
             double avgDurationSec
     ) {
+        /**
+         * Taux de réussite du traitement sur la fenêtre.
+         *
+         * @return le taux en pourcentage, ou {@code 0} en l'absence d'exécution
+         */
         public double successRate() {
             return totalExecutions == 0 ? 0.0 : (double) completed / totalExecutions * 100.0;
         }
     }
 
+    /**
+     * Volumétrie agrégée d'une journée d'extraction.
+     *
+     * @param date       journée concernée, au format compact {@code AAAAMMJJ}
+     * @param totalRead  lignes lues depuis Oracle ce jour-là
+     * @param totalWrite lignes écrites en SQL Server ce jour-là
+     * @param jobCount   nombre d'exécutions distinctes
+     * @param completed  nombre d'exécutions réussies
+     */
     public record DailyAggregate(
             String date,
             long totalRead,
@@ -290,6 +399,12 @@ public class BatchExecutionRepository {
 
     // ── Helpers ─────────────────────────────────────────────────────────────
 
+    /**
+     * Convertit un horodatage JDBC en date Java, en préservant l'absence de valeur.
+     *
+     * @param ts horodatage lu depuis la base, éventuellement {@code null}
+     * @return la date correspondante, ou {@code null} si la colonne est vide
+     */
     private static LocalDateTime toLocalDateTime(Timestamp ts) {
         return ts != null ? ts.toLocalDateTime() : null;
     }

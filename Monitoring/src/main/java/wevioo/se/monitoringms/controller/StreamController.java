@@ -35,8 +35,19 @@ import wevioo.se.monitoringms.service.SsePublisher;
 @Tag(name = "Flux temps réel", description = "Flux SSE en temps réel pour le tableau de bord (traitements en cours et alertes)")
 public class StreamController {
 
+    /** Diffuseur du flux d'événements serveur. */
     private final SsePublisher ssePublisher;
 
+    /**
+     * Ouvre un flux d'événements serveur vers le client appelant.
+     *
+     * <p>La réponse est asynchrone : la requête HTTP reste ouverte et le
+     * serveur y écrit au fil des diffusions. L'émetteur expire au bout de cinq
+     * minutes, {@code EventSource} rétablissant alors la connexion de
+     * lui-même.</p>
+     *
+     * @return l'émetteur associé au client, déjà enregistré auprès du diffuseur
+     */
     @GetMapping(value = "/jobs", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "Flux SSE des jobs en cours",
             description = "Connexion persistante. Envoie les jobs actifs toutes les 10 secondes et les alertes toutes les 30 secondes.")

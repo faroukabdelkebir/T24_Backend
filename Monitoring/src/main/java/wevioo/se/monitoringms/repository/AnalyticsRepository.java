@@ -12,42 +12,66 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Requêtes analytiques métier sur les tables extraites de T24.
- * (v4.2 — satellites dédoublonnés : résistant aux réinsertions du Json_Flattener)
  *
- * Particularité : les identifiants T24 encodent la date métier
- * (FTyyddd…, AABILLyyddd…), ce qui permet de reconstruire l'axe temps
- * même quand PROCESSING_DATE n'a pas encore été extraite.
+ * <p><strong>Reconstruction de l'axe temps.</strong> Les identifiants T24
+ * encodent la date métier ({@code FTyyddd…}, {@code AABILLyyddd…}) : les
+ * séries temporelles restent donc calculables même lorsque la colonne
+ * {@code PROCESSING_DATE} n'a pas encore été extraite.</p>
  *
- * Champs multivalués (single_mult = 'M') : le Json_Flattener de l'extracteur
- * les normalise dans des tables satellites nommées « TABLE#CHAMP »
- * (_id, CHAMP nvarchar(355), MV_SEQUENCE, SEQUENCE). La colonne du même nom
- * dans la table principale ne contient que le JSON brut — ne jamais la
- * requêter directement pour l'analytique.
+ * <p><strong>Champs multivalués.</strong> Les champs déclarés
+ * {@code single_mult = 'M'} sont normalisés par le Json_Flattener de
+ * l'extracteur dans des tables satellites nommées {@code TABLE#CHAMP}
+ * ({@code _id}, {@code CHAMP}, {@code MV_SEQUENCE}, {@code SEQUENCE}). La
+ * colonne homonyme de la table principale ne contient que le JSON brut et ne
+ * doit jamais être interrogée pour l'analytique.</p>
  *
- * Dégradation contrôlée : {@link #hasColumn} / {@link #tableExists} vérifient
- * (et mettent en cache) la présence des colonnes et satellites « enrichis » —
- * les indicateurs concernés restent à null tant que l'extraction complète
- * n'a pas été relancée.
+ * <p><strong>Dégradation contrôlée.</strong> {@link #hasColumn} et
+ * {@link #tableExists} vérifient la présence des colonnes et satellites
+ * enrichis avant d'émettre une requête. Les indicateurs concernés retournent
+ * {@code null} ou une liste vide tant que l'extraction n'a pas été enrichie,
+ * plutôt que de faire échouer l'appel.</p>
+ *
+ * <p><strong>Construction du SQL.</strong> Plusieurs requêtes interpolent un
+ * nom de colonne ou de table dans le texte SQL, ce que les paramètres liés ne
+ * permettent pas. Ces noms proviennent exclusivement des listes fermées
+ * {@link #CUSTOMER_DIMENSIONS} et {@link #BILLING_DIMENSIONS}, ou de
+ * constantes internes : aucune saisie utilisateur n'atteint le SQL.</p>
+ *
+ * @see wevioo.se.monitoringms.service.AnalyticsService
  */
 @Repository
 @RequiredArgsConstructor
 @Slf4j
 public class AnalyticsRepository {
 
+    /** Gabarit JDBC pointant sur la base décisionnelle SQL Server. */
     private final JdbcTemplate jdbc;
 
+    /** Table des virements historisés. */
     public static final String FT_TABLE   = "FUNDS_TRANSFER#HIS";
+
+    /** Table du référentiel clients. */
     public static final String CUS_TABLE  = "CUSTOMER";
+
+    /** Table du détail de facturation. */
     public static final String BILL_TABLE = "AA_BILL_DETAILS";
 
-    /** Nom d'une table satellite de champ multivalué (convention Json_Flattener). */
+    /**
+     * Construit le nom de la table satellite portant un champ multivalué,
+     * selon la convention de nommage du Json_Flattener.
+     *
+     * @param table table principale, par exemple {@code CUSTOMER}
+     * @param field champ multivalué, par exemple {@code DATE_AC_OPND}
+     * @return le nom du satellite, de la forme {@code TABLE#CHAMP}
+     */
     private static String satellite(String table, String field) {
         return table + "#" + field;
     }
 
     /**
-     * Filtre « une ligne par enregistrement » sur un satellite : on ne garde
-     * que la première multivaleur / sous-valeur pour les répartitions.
+     * Filtre ramenant un satellite à une ligne par enregistrement : seule la
+     * première multivaleur et sa première sous-valeur sont conservées, faute
+     * de quoi les répartitions compteraient plusieurs fois le même dossier.
      */
     private static final String FIRST_MV =
             "COALESCE(s.MV_SEQUENCE, 1) = 1 AND COALESCE(s.[SEQUENCE], 1) = 1";
@@ -68,24 +92,49 @@ public class AnalyticsRepository {
             "type",    "BILL_TYPE",
             "method",  "PAYMENT_METHOD");
 
-    /** Expression SQL : date métier reconstruite depuis un ID T24. */
+    /**
+     * Expression SQL reconstruisant la date métier d'un virement depuis son
+     * identifiant {@code FTyyddd…} : deux chiffres d'année suivis du quantième.
+     */
     private static final String FT_DATE =
             "DATEADD(DAY, TRY_CONVERT(int, SUBSTRING(ORIGINAL_ID, 5, 3)) - 1, " +
                     "DATEFROMPARTS(2000 + TRY_CONVERT(int, SUBSTRING(ORIGINAL_ID, 3, 2)), 1, 1))";
+
+    /**
+     * Expression SQL reconstruisant la date métier d'une facture depuis son
+     * identifiant {@code AABILLyyddd…}.
+     */
     private static final String BILL_DATE =
             "DATEADD(DAY, TRY_CONVERT(int, SUBSTRING(ORIGINAL_ID, 9, 3)) - 1, " +
                     "DATEFROMPARTS(2000 + TRY_CONVERT(int, SUBSTRING(ORIGINAL_ID, 7, 2)), 1, 1))";
 
+    /** Filtre écartant les virements dont l'identifiant ne suit pas la forme attendue. */
     private static final String FT_ID_FILTER   = "ORIGINAL_ID LIKE 'FT[0-9][0-9][0-9][0-9][0-9]%'";
+
+    /** Filtre écartant les factures dont l'identifiant ne suit pas la forme attendue. */
     private static final String BILL_ID_FILTER = "ORIGINAL_ID LIKE 'AABILL[0-9][0-9][0-9][0-9][0-9]%'";
 
-    /** Année extraite de l'ID FT (2000 + yy). */
+    /** Expression SQL extrayant l'année d'un identifiant de virement. */
     private static final String FT_YEAR =
             "2000 + TRY_CONVERT(int, SUBSTRING(ORIGINAL_ID, 3, 2))";
 
+    /**
+     * Mémoïsation des sondes de schéma. Les colonnes et satellites n'évoluent
+     * qu'au rythme des extractions : une vérification par clé suffit pour la
+     * durée de vie de l'application.
+     */
     private final Map<String, Boolean> columnCache = new ConcurrentHashMap<>();
 
-    /** La colonne existe-t-elle dans la base BI ? (résultat mis en cache) */
+    /**
+     * Vérifie la présence d'une colonne dans la base décisionnelle.
+     *
+     * <p>Le résultat est mémorisé : le redémarrage de l'application est
+     * nécessaire pour prendre en compte un enrichissement d'extraction.</p>
+     *
+     * @param table  nom de la table à sonder
+     * @param column nom de la colonne recherchée
+     * @return {@code true} si la colonne existe
+     */
     public boolean hasColumn(String table, String column) {
         return columnCache.computeIfAbsent(table + "." + column, k -> {
             Integer n = jdbc.queryForObject(
@@ -100,7 +149,16 @@ public class AnalyticsRepository {
         });
     }
 
-    /** La table (satellite) existe-t-elle dans la base BI ? (résultat mis en cache) */
+    /**
+     * Vérifie la présence d'une table, généralement un satellite de champ
+     * multivalué.
+     *
+     * <p>Le résultat est mémorisé selon la même logique que
+     * {@link #hasColumn(String, String)}.</p>
+     *
+     * @param table nom de la table recherchée
+     * @return {@code true} si la table existe
+     */
     public boolean tableExists(String table) {
         return columnCache.computeIfAbsent("TABLE::" + table, k -> {
             Integer n = jdbc.queryForObject(
@@ -114,7 +172,12 @@ public class AnalyticsRepository {
         });
     }
 
-    /** État des colonnes « enrichies » attendues pour la page Flux. */
+    /**
+     * Dresse l'état des colonnes enrichies attendues par la page Flux.
+     *
+     * @return une entrée par colonne attendue, {@code true} si elle est extraite ;
+     *         l'ordre d'insertion est conservé pour l'affichage
+     */
     public Map<String, Boolean> ftEnrichedColumnsStatus() {
         Map<String, Boolean> status = new LinkedHashMap<>();
         for (String col : List.of("AMOUNT_DEBITED", "DEBIT_CURRENCY",
@@ -124,7 +187,14 @@ public class AnalyticsRepository {
         return status;
     }
 
-    /** État des colonnes « enrichies » attendues pour la page Clients. */
+    /**
+     * Dresse l'état des colonnes enrichies attendues par la page Clients.
+     *
+     * <p>La date d'entrée en relation étant multivaluée, sa disponibilité se
+     * mesure sur l'existence du satellite et non sur celle d'une colonne.</p>
+     *
+     * @return une entrée par colonne attendue, {@code true} si elle est extraite
+     */
     public Map<String, Boolean> customerEnrichedColumnsStatus() {
         Map<String, Boolean> status = new LinkedHashMap<>();
         for (String col : List.of("SECTOR", "NATIONALITY", "GENDER",
@@ -138,17 +208,36 @@ public class AnalyticsRepository {
 
     // ── Clients : socle ───────────────────────────────────────────────────────
 
+    /**
+     * Compte les clients du référentiel.
+     *
+     * @return l'effectif total, ou {@code 0} si l'agrégat n'a pu être calculé
+     */
     public long countClients() {
         Long n = jdbc.queryForObject("SELECT COUNT(*) FROM CUSTOMER", Long.class);
         return n == null ? 0 : n;
     }
 
+    /**
+     * Calcule l'âge moyen des clients.
+     *
+     * <p>La colonne {@code AGE} est textuelle et peut porter la chaîne
+     * littérale {@code 'NULL'} : les valeurs non numériques sont écartées.</p>
+     *
+     * @return l'âge moyen, ou {@code null} si aucune valeur n'est exploitable
+     */
     public Double averageAge() {
         return jdbc.queryForObject(
                 "SELECT AVG(TRY_CONVERT(float, NULLIF(AGE, 'NULL'))) FROM CUSTOMER",
                 Double.class);
     }
 
+    /**
+     * Compte les gestionnaires de portefeuille distincts.
+     *
+     * @return le nombre de gestionnaires, ou {@code 0} si l'agrégat n'a pu
+     *         être calculé
+     */
     public long countOfficers() {
         Long n = jdbc.queryForObject(
                 "SELECT COUNT(DISTINCT ACCOUNT_OFFICER) FROM CUSTOMER " +
@@ -157,7 +246,14 @@ public class AnalyticsRepository {
         return n == null ? 0 : n;
     }
 
-    /** Portefeuille par gestionnaire, trié décroissant. */
+    /**
+     * Classe les gestionnaires par taille de portefeuille.
+     *
+     * @param top nombre de gestionnaires à ramener
+     * @return des lignes portant les clés {@code officer}, {@code nb},
+     *         {@code age_moyen} et {@code part_pct}, du plus gros portefeuille
+     *         au plus petit
+     */
     public List<Map<String, Object>> portfolioByOfficer(int top) {
         return jdbc.queryForList("""
                 SELECT TOP (?) ACCOUNT_OFFICER AS officer,
@@ -171,7 +267,12 @@ public class AnalyticsRepository {
                 """, top);
     }
 
-    /** Répartition des clients par tranche d'âge (6 tranches, page Synthèse). */
+    /**
+     * Répartit les clients en six tranches d'âge, pour la page Synthèse.
+     *
+     * @return des lignes portant les clés {@code tranche}, {@code ordre} et
+     *         {@code nb}, triées de la tranche la plus jeune à la plus âgée
+     */
     public List<Map<String, Object>> agePyramid() {
         return jdbc.queryForList("""
                 SELECT tranche, ordre, COUNT(*) AS nb
@@ -202,7 +303,15 @@ public class AnalyticsRepository {
 
     // ── Clients : page dédiée ─────────────────────────────────────────────────
 
-    /** Histogramme des âges par pas de 5 ans (85+ regroupés). */
+    /**
+     * Répartit les clients par tranche d'âge de cinq ans.
+     *
+     * <p>Les 85 ans et plus sont regroupés dans une tranche unique, les
+     * effectifs y devenant trop faibles pour être lisibles.</p>
+     *
+     * @return des lignes portant les clés {@code band} (borne basse de la
+     *         tranche) et {@code nb}, triées par âge croissant
+     */
     public List<Map<String, Object>> ageHistogram() {
         return jdbc.queryForList("""
                 SELECT band, COUNT(*) AS nb
@@ -216,7 +325,16 @@ public class AnalyticsRepository {
                 """);
     }
 
-    /** Répartition par génération, dérivée de l'année de naissance (BIRTH_INCORP_DATE). */
+    /**
+     * Répartit les clients par génération.
+     *
+     * <p>La génération est dérivée de l'année de naissance lue dans
+     * {@code BIRTH_INCORP_DATE}. Les années hors de la plage 1900–2026 sont
+     * écartées : elles trahissent une donnée de mauvaise qualité.</p>
+     *
+     * @return des lignes portant les clés {@code label}, {@code ordre} et
+     *         {@code nb}, de la génération la plus jeune à la plus ancienne
+     */
     public List<Map<String, Object>> generations() {
         return jdbc.queryForList("""
                 SELECT gen AS label, ordre, COUNT(*) AS nb
@@ -244,7 +362,14 @@ public class AnalyticsRepository {
                 """);
     }
 
-    /** Part des clients dont l'âge est compris entre deux bornes (incluses). */
+    /**
+     * Calcule la part des clients dont l'âge tombe dans un intervalle.
+     *
+     * @param from borne basse, incluse
+     * @param to   borne haute, incluse
+     * @return la part en pourcentage, ou {@code null} si aucun âge n'est
+     *         exploitable
+     */
     public Double ageShare(int from, int to) {
         return jdbc.queryForObject("""
                 SELECT 100.0 * SUM(CASE WHEN a BETWEEN ? AND ? THEN 1 ELSE 0 END) / COUNT(*)
@@ -253,7 +378,15 @@ public class AnalyticsRepository {
                 """, Double.class, from, to);
     }
 
-    /** Part des dossiers issus de la migration initiale (marqueur dans AUTHORISER). */
+    /**
+     * Calcule la part des dossiers issus de la migration initiale.
+     *
+     * <p>Ces dossiers se reconnaissent au marqueur laissé dans le champ
+     * {@code AUTHORISER} lors de la reprise de données.</p>
+     *
+     * @return la part en pourcentage, ou {@code null} si le champ n'est pas
+     *         renseigné
+     */
     public Double migrationShare() {
         return jdbc.queryForObject("""
                 SELECT 100.0 * SUM(CASE WHEN AUTHORISER LIKE '%MIGRATION%' THEN 1 ELSE 0 END)
@@ -275,7 +408,12 @@ public class AnalyticsRepository {
             GROUP BY s._id
             """;
 
-    /** Années disponibles d'entrée en relation — vide tant que le satellite est absent. */
+    /**
+     * Liste les années d'entrée en relation présentes dans les données.
+     *
+     * @return les années par ordre décroissant ; liste vide tant que le
+     *         satellite {@code CUSTOMER#DATE_AC_OPND} n'est pas alimenté
+     */
     public List<Integer> acquisitionYears() {
         if (!tableExists(satellite(CUS_TABLE, "DATE_AC_OPND"))) return List.of();
         return jdbc.queryForList("""
@@ -286,7 +424,13 @@ public class AnalyticsRepository {
                 """.formatted(ACQ_FIRST_DATE), Integer.class);
     }
 
-    /** Nouveaux clients par mois — vide tant que le satellite est absent. */
+    /**
+     * Compte les entrées en relation mois par mois.
+     *
+     * @param year année à filtrer ; {@code 0} pour tout l'historique
+     * @return des lignes portant les clés {@code mois} et {@code nb}, triées
+     *         par mois ; liste vide tant que le satellite n'est pas alimenté
+     */
     public List<Map<String, Object>> newCustomersMonthly(int year) {
         if (!tableExists(satellite(CUS_TABLE, "DATE_AC_OPND"))) return List.of();
         return jdbc.queryForList("""
@@ -298,7 +442,14 @@ public class AnalyticsRepository {
                 """.formatted(ACQ_FIRST_DATE), year, year);
     }
 
-    /** Nombre de nouveaux clients — null tant que le satellite est absent. */
+    /**
+     * Compte les entrées en relation sur une année.
+     *
+     * @param year année à filtrer ; {@code 0} pour tout l'historique
+     * @return l'effectif, ou {@code null} tant que le satellite n'est pas
+     *         alimenté — le {@code null} distingue « donnée indisponible » de
+     *         « aucune entrée en relation »
+     */
     public Long countNewCustomers(int year) {
         if (!tableExists(satellite(CUS_TABLE, "DATE_AC_OPND"))) return null;
         return jdbc.queryForObject("""
@@ -309,8 +460,16 @@ public class AnalyticsRepository {
     }
 
     /**
-     * Segmentation des clients selon une dimension autorisée
-     * (cf. {@link #CUSTOMER_DIMENSIONS}) — vide tant que la colonne est absente.
+     * Segmente les clients selon une dimension autorisée.
+     *
+     * <p>Les valeurs vides ou littéralement égales à {@code 'NULL'} sont
+     * regroupées sous le libellé {@code —}.</p>
+     *
+     * @param dimensionKey clé de dimension, parmi {@link #CUSTOMER_DIMENSIONS}
+     * @param top          nombre de valeurs à ramener
+     * @return des lignes portant les clés {@code label} et {@code nb}, de la
+     *         valeur la plus fréquente à la moins fréquente ; liste vide si la
+     *         dimension est inconnue ou sa colonne non extraite
      */
     public List<Map<String, Object>> customerBreakdown(String dimensionKey, int top) {
         String column = CUSTOMER_DIMENSIONS.get(dimensionKey);
@@ -326,7 +485,11 @@ public class AnalyticsRepository {
 
     // ── Virements : volumes ───────────────────────────────────────────────────
 
-    /** Années présentes dans l'historique de virements (axe des filtres). */
+    /**
+     * Liste les années présentes dans l'historique des virements.
+     *
+     * @return les années par ordre décroissant, déduites des identifiants T24
+     */
     public List<Integer> transferYears() {
         return jdbc.queryForList(
                 "SELECT DISTINCT " + FT_YEAR + " AS y FROM [" + FT_TABLE + "] " +
@@ -334,7 +497,13 @@ public class AnalyticsRepository {
                 Integer.class);
     }
 
-    /** Volumes mensuels des virements d'une année (année = 0 → toutes). */
+    /**
+     * Compte les virements mois par mois.
+     *
+     * @param year année à filtrer ; {@code 0} pour tout l'historique
+     * @return des lignes portant les clés {@code mois} et {@code nb}, triées
+     *         par mois ; les mois sans opération sont absents
+     */
     public List<Map<String, Object>> monthlyTransfers(int year) {
         return jdbc.queryForList("""
                 SELECT MONTH(%s) AS mois, COUNT(*) AS nb
@@ -346,6 +515,12 @@ public class AnalyticsRepository {
                 year, year);
     }
 
+    /**
+     * Compte les virements sur une année.
+     *
+     * @param year année à filtrer ; {@code 0} pour tout l'historique
+     * @return le nombre d'opérations, ou {@code 0} si l'agrégat n'a pu être calculé
+     */
     public long countTransfers(int year) {
         Long n = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM [%s]
@@ -357,7 +532,13 @@ public class AnalyticsRepository {
 
     // ── Virements : montants (page Flux) ──────────────────────────────────────
 
-    /** Somme des montants débités — null tant que AMOUNT_DEBITED absent. */
+    /**
+     * Totalise les montants débités sur une année.
+     *
+     * @param year année à filtrer ; {@code 0} pour tout l'historique
+     * @return le montant total, ou {@code null} tant que {@code AMOUNT_DEBITED}
+     *         n'est pas extraite
+     */
     public Double sumTransfers(int year) {
         if (!hasColumn(FT_TABLE, "AMOUNT_DEBITED")) return null;
         return jdbc.queryForObject("""
@@ -367,7 +548,13 @@ public class AnalyticsRepository {
                 Double.class, year, year);
     }
 
-    /** Montants mensuels — liste vide tant que AMOUNT_DEBITED absent. */
+    /**
+     * Totalise les montants débités mois par mois.
+     *
+     * @param year année à filtrer ; {@code 0} pour tout l'historique
+     * @return des lignes portant les clés {@code mois} et {@code montant} ;
+     *         liste vide tant que {@code AMOUNT_DEBITED} n'est pas extraite
+     */
     public List<Map<String, Object>> monthlyAmounts(int year) {
         if (!hasColumn(FT_TABLE, "AMOUNT_DEBITED")) return List.of();
         return jdbc.queryForList("""
@@ -382,8 +569,17 @@ public class AnalyticsRepository {
     }
 
     /**
-     * Répartition des flux par devise — vide tant que DEBIT_CURRENCY absente.
-     * Le montant reste null si AMOUNT_DEBITED n'est pas encore extraite.
+     * Répartit les virements par devise de débit.
+     *
+     * <p>La colonne de montant n'est agrégée que si elle est extraite ; sinon
+     * la requête projette une valeur nulle, ce qui préserve la forme du
+     * résultat. Les devises absentes sont ramenées à {@code TND}, devise de
+     * référence de l'établissement.</p>
+     *
+     * @param year année à filtrer ; {@code 0} pour tout l'historique
+     * @return des lignes portant les clés {@code label}, {@code nb} et
+     *         {@code montant} ; liste vide tant que {@code DEBIT_CURRENCY}
+     *         n'est pas extraite
      */
     public List<Map<String, Object>> flowsByCurrency(int year) {
         if (!hasColumn(FT_TABLE, "DEBIT_CURRENCY")) return List.of();
@@ -401,7 +597,14 @@ public class AnalyticsRepository {
                 year, year);
     }
 
-    /** Répartition par type d'opération — vide tant que TRANSACTION_TYPE absente. */
+    /**
+     * Répartit les virements par type d'opération.
+     *
+     * @param year année à filtrer ; {@code 0} pour tout l'historique
+     * @return des lignes portant les clés {@code label}, {@code nb} et
+     *         {@code montant} ; liste vide tant que {@code TRANSACTION_TYPE}
+     *         n'est pas extraite
+     */
     public List<Map<String, Object>> flowsByType(int year) {
         if (!hasColumn(FT_TABLE, "TRANSACTION_TYPE")) return List.of();
         String amount = hasColumn(FT_TABLE, "AMOUNT_DEBITED")
@@ -419,9 +622,16 @@ public class AnalyticsRepository {
     }
 
     /**
-     * Heatmap d'activité mois × jour de semaine — fonctionne dès aujourd'hui
-     * (date reconstruite depuis l'ID). 0 = lundi … 6 = dimanche, indépendant
-     * de DATEFIRST grâce à DATEDIFF depuis le 1900-01-01 (un lundi).
+     * Croise l'activité par mois et par jour de semaine.
+     *
+     * <p>Ne dépend d'aucune colonne enrichie : la date est reconstruite depuis
+     * l'identifiant T24. Le jour de semaine est calculé par différence avec le
+     * 1<sup>er</sup> janvier 1900, qui était un lundi ; le résultat est donc
+     * indépendant du réglage {@code DATEFIRST} de la session SQL Server.</p>
+     *
+     * @param year année à filtrer ; {@code 0} pour tout l'historique
+     * @return des lignes portant les clés {@code mois}, {@code jour}
+     *         ({@code 0} pour lundi jusqu'à {@code 6} pour dimanche) et {@code nb}
      */
     public List<Map<String, Object>> activityHeatmap(int year) {
         return jdbc.queryForList("""
@@ -439,7 +649,15 @@ public class AnalyticsRepository {
 
     // ── Facturation (AA_BILL_DETAILS) ─────────────────────────────────────────
 
-    /** État des colonnes « enrichies » attendues pour la page Créances. */
+    /**
+     * Dresse l'état des colonnes enrichies attendues par la page Créances.
+     *
+     * <p>Les champs de statut sont multivalués et donc portés par des
+     * satellites, tandis que les montants et dates sont des colonnes directes
+     * de la table principale : la sonde diffère selon le cas.</p>
+     *
+     * @return une entrée par champ attendu, {@code true} s'il est extrait
+     */
     public Map<String, Boolean> billingEnrichedColumnsStatus() {
         Map<String, Boolean> status = new LinkedHashMap<>();
         // Multivalués → normalisés par le Json_Flattener dans AA_BILL_DETAILS#CHAMP
@@ -454,7 +672,11 @@ public class AnalyticsRepository {
         return status;
     }
 
-    /** Années présentes dans l'historique de facturation (axe des filtres). */
+    /**
+     * Liste les années présentes dans l'historique de facturation.
+     *
+     * @return les années par ordre décroissant, déduites des identifiants T24
+     */
     public List<Integer> billYears() {
         return jdbc.queryForList(
                 "SELECT DISTINCT 2000 + TRY_CONVERT(int, SUBSTRING(ORIGINAL_ID, 7, 2)) AS y " +
@@ -462,6 +684,12 @@ public class AnalyticsRepository {
                 Integer.class);
     }
 
+    /**
+     * Compte les factures émises sur une année.
+     *
+     * @param year année à filtrer ; {@code 0} pour tout l'historique
+     * @return le nombre de factures, ou {@code 0} si l'agrégat n'a pu être calculé
+     */
     public long countBills(int year) {
         Long n = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM AA_BILL_DETAILS
@@ -471,6 +699,16 @@ public class AnalyticsRepository {
         return n == null ? 0 : n;
     }
 
+    /**
+     * Compte les factures émises mois par mois.
+     *
+     * <p>Ne dépend d'aucune colonne enrichie : la date d'émission est
+     * reconstruite depuis l'identifiant {@code AABILLyyddd…}.</p>
+     *
+     * @param year année à filtrer ; {@code 0} pour tout l'historique
+     * @return des lignes portant les clés {@code mois} et {@code nb}, triées
+     *         par mois
+     */
     public List<Map<String, Object>> monthlyBills(int year) {
         return jdbc.queryForList("""
                 SELECT MONTH(%s) AS mois, COUNT(*) AS nb
@@ -482,7 +720,13 @@ public class AnalyticsRepository {
                 year, year);
     }
 
-    /** Montants facturés mensuels (OR_TOTAL_AMOUNT) — vide tant qu'absente. */
+    /**
+     * Totalise les montants facturés mois par mois.
+     *
+     * @param year année à filtrer ; {@code 0} pour tout l'historique
+     * @return des lignes portant les clés {@code mois} et {@code montant} ;
+     *         liste vide tant que {@code OR_TOTAL_AMOUNT} n'est pas extraite
+     */
     public List<Map<String, Object>> monthlyBillAmounts(int year) {
         if (!hasColumn(BILL_TABLE, "OR_TOTAL_AMOUNT")) return List.of();
         return jdbc.queryForList("""
@@ -496,18 +740,41 @@ public class AnalyticsRepository {
                 year, year);
     }
 
-    /** Montant total facturé (Σ OR_TOTAL_AMOUNT) — null tant qu'absente. */
+    /**
+     * Totalise les montants facturés sur une année.
+     *
+     * @param year année à filtrer ; {@code 0} pour tout l'historique
+     * @return le montant facturé, ou {@code null} tant que
+     *         {@code OR_TOTAL_AMOUNT} n'est pas extraite
+     */
     public Double billedAmount(int year) {
         return sumBillColumn("OR_TOTAL_AMOUNT", year);
     }
 
-    /** Encours total (Σ OS_TOTAL_AMOUNT) — null tant qu'absente. */
+    /**
+     * Totalise les encours restant dus sur une année.
+     *
+     * @param year année à filtrer ; {@code 0} pour tout l'historique
+     * @return l'encours total, ou {@code null} tant que
+     *         {@code OS_TOTAL_AMOUNT} n'est pas extraite
+     */
     public Double outstandingAmount(int year) {
         return sumBillColumn("OS_TOTAL_AMOUNT", year);
     }
 
+    /**
+     * Totalise une colonne monétaire de la table de facturation.
+     *
+     * <p>Le nom de colonne est interpolé dans le SQL car un paramètre lié ne
+     * peut pas désigner une colonne. Les seules valeurs possibles sont les
+     * constantes passées par {@link #billedAmount(int)} et
+     * {@link #outstandingAmount(int)} : aucune saisie utilisateur n'y accède.</p>
+     *
+     * @param column nom de la colonne à sommer
+     * @param year   année à filtrer ; {@code 0} pour tout l'historique
+     * @return la somme, ou {@code null} si la colonne n'est pas extraite
+     */
     private Double sumBillColumn(String column, int year) {
-        // Colonne issue d'une liste fermée interne — jamais d'entrée utilisateur.
         if (!hasColumn(BILL_TABLE, column)) return null;
         return jdbc.queryForObject("""
                 SELECT SUM(TRY_CONVERT(decimal(18,3), %s)) FROM AA_BILL_DETAILS
@@ -517,12 +784,23 @@ public class AnalyticsRepository {
     }
 
     /**
-     * Segmentation des créances selon une dimension autorisée
-     * (cf. {@link #BILLING_DIMENSIONS}). Les dimensions sont des champs
-     * multivalués : la valeur est lue dans la table satellite
-     * AA_BILL_DETAILS#CHAMP (première multivaleur), jointe à la table
-     * principale pour le filtre année et l'encours.
-     * Vide tant que le satellite est absent.
+     * Segmente les créances selon une dimension autorisée.
+     *
+     * <p>Toutes ces dimensions sont des champs multivalués : la valeur est
+     * lue dans le satellite {@code AA_BILL_DETAILS#CHAMP}, restreint à la
+     * première multivaleur, puis joint à la table principale pour appliquer le
+     * filtre d'année et agréger l'encours.</p>
+     *
+     * <p>Le {@code DISTINCT} sur le satellite est indispensable : le
+     * Json_Flattener peut réinsérer les mêmes lignes à chaque passage, ce qui
+     * gonflerait les effectifs.</p>
+     *
+     * @param dimensionKey clé de dimension, parmi {@link #BILLING_DIMENSIONS}
+     * @param year         année à filtrer ; {@code 0} pour tout l'historique
+     * @param top          nombre de valeurs à ramener
+     * @return des lignes portant les clés {@code label}, {@code nb} et
+     *         {@code montant} ; liste vide si la dimension est inconnue ou son
+     *         satellite absent
      */
     public List<Map<String, Object>> billingBreakdown(String dimensionKey, int year, int top) {
         String field = BILLING_DIMENSIONS.get(dimensionKey);
@@ -551,9 +829,16 @@ public class AnalyticsRepository {
     }
 
     /**
-     * Délai moyen de règlement en jours (échéance → paiement effectif) —
-     * null tant que PAYMENT_DATE et ACTUAL_PAY_DATE ne sont pas extraites.
-     * Positif = payé après l'échéance, négatif = payé en avance.
+     * Calcule le délai moyen entre l'échéance et le paiement effectif.
+     *
+     * <p>Seules les factures dont les deux dates sont exploitables entrent
+     * dans la moyenne.</p>
+     *
+     * @param year année à filtrer ; {@code 0} pour tout l'historique
+     * @return le délai moyen en jours — positif si le règlement intervient
+     *         après l'échéance, négatif s'il est anticipé — ou {@code null}
+     *         tant que {@code PAYMENT_DATE} et {@code ACTUAL_PAY_DATE} ne sont
+     *         pas toutes deux extraites
      */
     public Double avgSettlementDelay(int year) {
         if (!hasColumn(BILL_TABLE, "PAYMENT_DATE")
@@ -571,7 +856,17 @@ public class AnalyticsRepository {
                 Double.class, year, year);
     }
 
-    /** Vieillissement des créances (compat page Synthèse) — vide tant que le satellite est absent. */
+    /**
+     * Répartit les créances par état de vieillissement.
+     *
+     * <p>Conservée pour la page Synthèse, qui n'applique pas de filtre
+     * d'année, contrairement à
+     * {@link #billingBreakdown(String, int, int)}.</p>
+     *
+     * @return des lignes portant les clés {@code label} et {@code nb}, de la
+     *         valeur la plus fréquente à la moins fréquente ; liste vide tant
+     *         que le satellite {@code AGING_STATUS} n'est pas alimenté
+     */
     public List<Map<String, Object>> billingAging() {
         if (!tableExists(satellite(BILL_TABLE, "AGING_STATUS"))) {
             return List.of();
