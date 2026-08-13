@@ -11,6 +11,16 @@ import org.springframework.data.relational.core.mapping.Table;
 import static com.t24extractor.commons.Constants.SCHEMA_SOURCE;
 
 
+/**
+ * Description d'une colonne extraite : son type ODS et son état d'activation.
+ *
+ * &lt;p&gt;SCHEMA_SOURCE est le référentiel qui décide, colonne par colonne, de ce
+ * qui est extrait. Une colonne désactivée reste déclarée mais n'entre ni dans
+ * la table BI, ni dans l'INSERT.
+ *
+ * @see com.t24extractor.bi_sync.tasklet.BISyncTasklet
+ * @see SchemaSourceAudit
+ */
 @Table(value = SCHEMA_SOURCE)
 @Data
 @AllArgsConstructor
@@ -45,12 +55,18 @@ public class SchemaSource implements Persistable&lt;String&gt; {
 
     @Override
     public String getId() {
-<span class="fc" id="L48">        return id;</span>
+<span class="fc" id="L58">        return id;</span>
     }
 
+    /**
+     * Toujours {@code true} : la table est alimentée en ajout, ce qui force
+     * Spring Data JDBC à émettre un INSERT plutôt qu'un UPDATE.
+     *
+     * @return {@code true}
+     */
     @Override
     public boolean isNew() {
-<span class="nc" id="L53">        return true;</span>
+<span class="fc" id="L69">        return true;</span>
     }
 
 }

@@ -14,10 +14,23 @@ import org.springframework.stereotype.Component;
 import java.util.NoSuchElementException;
 
 /**
- * Ce tasklet sert à requeter les noms des tables T24 sur la base de données (Oracle)
- * La logique de requete se commence par determiner la classification de la table T24 si elle est F ou FBNK, et se termine par la requête sur TAFJ_VOC
+ * Résout le nom physique Oracle d'une table T24 et son mode de stockage.
+ *
+ * &lt;p&gt;T24 ne stocke pas ses tables sous leur nom fonctionnel. La résolution se
+ * fait en deux temps :
+ * &lt;ol&gt;
+ *   &lt;li&gt;la classification (F_FILE_CONTROL) donne le préfixe, {@code F} ou
+ *       {@code FBNK} — d'où {@code CUSTOMER} → {@code FBNK.CUSTOMER} ;&lt;/li&gt;
+ *   &lt;li&gt;TAFJ_VOC traduit ce nom qualifié en table Oracle réelle
+ *       ({@code FBNK_CUSTOMER}) et indique son mode de stockage.&lt;/li&gt;
+ * &lt;/ol&gt;
+ *
+ * &lt;p&gt;Écrit dans le contexte de job {@code Table_Name} et {@code Type} ; ce
+ * dernier détermine si la suite du flow lira du XML ou du BLOB.
+ *
+ * @see com.t24extractor.model.TafjVoc
  */
-<span class="fc" id="L20">@Slf4j</span>
+<span class="fc" id="L33">@Slf4j</span>
 @Component
 public class TableNameTasklet implements Tasklet {
 
@@ -25,60 +38,67 @@ public class TableNameTasklet implements Tasklet {
 
     private final FileControlServiceImpl fileControlService;
 
-<span class="fc" id="L28">    public TableNameTasklet(TafjVocRepository tafjVocRepository, FileControlServiceImpl fileControlService) {</span>
-<span class="fc" id="L29">        this.tafjVocRepository = tafjVocRepository;</span>
-<span class="fc" id="L30">        this.fileControlService = fileControlService;</span>
-<span class="fc" id="L31">    }</span>
+<span class="fc" id="L41">    public TableNameTasklet(TafjVocRepository tafjVocRepository, FileControlServiceImpl fileControlService) {</span>
+<span class="fc" id="L42">        this.tafjVocRepository = tafjVocRepository;</span>
+<span class="fc" id="L43">        this.fileControlService = fileControlService;</span>
+<span class="fc" id="L44">    }</span>
 
     @Setter
     String t24TableName;
 
+    /**
+     * {@inheritDoc}
+     *
+     * @return toujours {@link RepeatStatus#FINISHED}
+     * @throws NoSuchElementException si TAFJ_VOC ne connaît pas la table :
+     *         poursuivre reviendrait à interroger une table Oracle inexistante
+     */
     @Override
     public RepeatStatus execute(@NonNull StepContribution contribution, ChunkContext chunkContext) throws Exception {
 
-<span class="fc" id="L39">        log.debug(&quot;T24 Name {}&quot;, this.t24TableName);</span>
+<span class="fc" id="L59">        log.debug(&quot;T24 Name {}&quot;, this.t24TableName);</span>
 
         /*
             Concatenation entre la classification &amp; le nom de la table T24
             Ex: Classification= FBNK. + t24Name= ACCOUNT ==&gt; FBNK.ACCOUNT
          */
 
-<span class="fc" id="L46">        String classification = fileControlService.classification(this.t24TableName);</span>
-<span class="fc" id="L47">        log.debug(&quot;Le retour de Service Classification est {}&quot;, String.join(&quot;.&quot;, classification, this.t24TableName));</span>
-<span class="fc" id="L48">        String t24SelectionName = String.join(&quot;.&quot;, classification, this.t24TableName);</span>
+<span class="fc" id="L66">        String classification = fileControlService.classification(this.t24TableName);</span>
+<span class="fc" id="L67">        log.debug(&quot;Le retour de Service Classification est {}&quot;, String.join(&quot;.&quot;, classification, this.t24TableName));</span>
+<span class="fc" id="L68">        String t24SelectionName = String.join(&quot;.&quot;, classification, this.t24TableName);</span>
 
 
         /*
             Le correspondant de la table T24 sur Oracle
          */
-<span class="fc" id="L54">       TafjVoc tafjVoc =  tafjVocRepository.findTafjVocByRecid(t24SelectionName)</span>
-<span class="fc" id="L55">                .orElseThrow(() -&gt; new NoSuchElementException(String.format(&quot;Veuillez verifier que la table %s existe.&quot;, t24SelectionName)));</span>
+<span class="fc" id="L74">       TafjVoc tafjVoc =  tafjVocRepository.findTafjVocByRecid(t24SelectionName)</span>
+<span class="fc" id="L75">                .orElseThrow(() -&gt; new NoSuchElementException(String.format(&quot;Veuillez verifier que la table %s existe.&quot;, t24SelectionName)));</span>
 
         /*
             Le singleMult des donnees T24 sur Oracle(Blob, XML, Clob)
          */
 
-<span class="fc" id="L61">        log.info(String.valueOf(tafjVoc));</span>
-<span class="fc" id="L62">        String dbFileName = tafjVoc.orclFileName();</span>
-<span class="fc" id="L63">        char isBlob = tafjVoc.isBlob().charAt(0);</span>
+<span class="fc" id="L81">        log.info(String.valueOf(tafjVoc));</span>
+<span class="fc" id="L82">        String dbFileName = tafjVoc.orclFileName();</span>
+<span class="fc" id="L83">        char isBlob = tafjVoc.isBlob().charAt(0);</span>
 
 
         /*
           Passer les variables aux autres steps à travers le contexte.
          */
-<span class="fc" id="L69">        chunkContext.getStepContext()</span>
-<span class="fc" id="L70">                .getStepExecution()</span>
-<span class="fc" id="L71">                .getJobExecution()</span>
-<span class="fc" id="L72">                .getExecutionContext()</span>
-<span class="fc" id="L73">                .put(&quot;Table_Name&quot;, dbFileName);</span>
+<span class="fc" id="L89">        chunkContext.getStepContext()</span>
+<span class="fc" id="L90">                .getStepExecution()</span>
+<span class="fc" id="L91">                .getJobExecution()</span>
+<span class="fc" id="L92">                .getExecutionContext()</span>
+<span class="fc" id="L93">                .put(&quot;Table_Name&quot;, dbFileName);</span>
 
-<span class="fc" id="L75">        chunkContext.getStepContext()</span>
-<span class="fc" id="L76">                .getStepExecution()</span>
-<span class="fc" id="L77">                .getJobExecution()</span>
-<span class="fc" id="L78">                .getExecutionContext()</span>
-<span class="fc" id="L79">                .put(&quot;Type&quot;, isBlob);</span>
+<span class="fc" id="L95">        chunkContext.getStepContext()</span>
+<span class="fc" id="L96">                .getStepExecution()</span>
+<span class="fc" id="L97">                .getJobExecution()</span>
+<span class="fc" id="L98">                .getExecutionContext()</span>
+<span class="fc" id="L99">                .put(&quot;Type&quot;, isBlob);</span>
 
-<span class="fc" id="L81">        return RepeatStatus.FINISHED;</span>
+<span class="fc" id="L101">        return RepeatStatus.FINISHED;</span>
     }
 
 }

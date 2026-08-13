@@ -7,23 +7,36 @@ import org.springframework.stereotype.Service;
 
 import java.util.NoSuchElementException;
 
+/**
+ * Implémentation adossée à la table T24 F_FILE_CONTROL.
+ *
+ * &lt;p&gt;Le nom reçu est d'abord normalisé (suppression du suffixe {@code $HIS} et
+ * assimilés), F_FILE_CONTROL n'indexant que les tables de base.
+ */
 @Service
 public class FileControlServiceImpl implements IFileControlService{
 
 
     private final FileControlRepository fileControlRepository;
 
-<span class="fc" id="L16">    private final Renamer renamer = new Renamer();</span>
+<span class="fc" id="L22">    private final Renamer renamer = new Renamer();</span>
 
-<span class="fc" id="L18">    public FileControlServiceImpl(FileControlRepository fileControlRepository) {</span>
-<span class="fc" id="L19">        this.fileControlRepository = fileControlRepository;</span>
-<span class="fc" id="L20">    }</span>
+<span class="fc" id="L24">    public FileControlServiceImpl(FileControlRepository fileControlRepository) {</span>
+<span class="fc" id="L25">        this.fileControlRepository = fileControlRepository;</span>
+<span class="fc" id="L26">    }</span>
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws java.util.NoSuchElementException si la table est absente de
+     *         F_FILE_CONTROL — sans classification, le nom Oracle ne peut pas
+     *         être reconstitué
+     */
     @Override
     public String classification(String recid) {
 
-<span class="fc" id="L25">        FileControl fileControl = fileControlRepository.findFileControlByRecid(renamer.ssRenamer(recid)).orElseThrow(() -&gt; new NoSuchElementException(&quot;Veuillez verifier que la table F_FILE_CONTROL est alimentee correctement&quot;));</span>
-<span class="fc bfc" id="L26" title="All 2 branches covered.">        return &quot;INT&quot;.equalsIgnoreCase(fileControl.classification()) ? &quot;F&quot; : &quot;FBNK&quot;;</span>
+<span class="fc" id="L38">        FileControl fileControl = fileControlRepository.findFileControlByRecid(renamer.ssRenamer(recid)).orElseThrow(() -&gt; new NoSuchElementException(&quot;Veuillez verifier que la table F_FILE_CONTROL est alimentee correctement&quot;));</span>
+<span class="fc bfc" id="L39" title="All 2 branches covered.">        return &quot;INT&quot;.equalsIgnoreCase(fileControl.classification()) ? &quot;F&quot; : &quot;FBNK&quot;;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

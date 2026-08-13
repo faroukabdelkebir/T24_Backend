@@ -7,21 +7,33 @@ import org.springframework.beans.factory.annotation.Value;
 import java.util.HashSet;
 
 
-<span class="fc" id="L10">public class XMLFilterProcessor implements ItemProcessor&lt;T24Table, T24Table&gt; </span>
+/**
+ * Écarte les enregistrements XML déjà présents en BI.
+ *
+ * &lt;p&gt;Utilisé lors d'une reprise : les identifiants déjà extraits sont chargés
+ * dans le contexte sous la clé {@code IDS}, et les lignes correspondantes sont
+ * filtrées plutôt que réinsérées.
+ */
+<span class="fc" id="L17">public class XMLFilterProcessor implements ItemProcessor&lt;T24Table, T24Table&gt;</span>
 {
     @Value(&quot;#{jobExecutionContext['IDS']}&quot;)
     HashSet&lt;String&gt; idsList;
 
+    /**
+     * {@inheritDoc}
+     *
+     * @return l'enregistrement, ou {@code null} pour l'exclure du chunk
+     */
     @Override
-    public T24Table process(T24Table item) throws Exception 
+    public T24Table process(T24Table item) throws Exception
     {
-<span class="fc bfc" id="L18" title="All 2 branches covered.">        if (idsList.contains(item.getRecid()))</span>
+<span class="fc bfc" id="L30" title="All 2 branches covered.">        if (idsList.contains(item.getRecid()))</span>
         {
-<span class="fc" id="L20">            return null;</span>
+<span class="fc" id="L32">            return null;</span>
         } 
         else 
         {
-<span class="fc" id="L24">            return item;</span>
+<span class="fc" id="L36">            return item;</span>
         }
     }
 }

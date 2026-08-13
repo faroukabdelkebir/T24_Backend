@@ -7,6 +7,13 @@ import org.springframework.transaction.PlatformTransactionManager;
 
 import javax.sql.DataSource;
 
+/**
+ * Place les métadonnées Spring Batch sur la base BI.
+ *
+ * <p>Spring Batch écrit l'état de ses exécutions (instances, steps, contextes) :
+ * la source Oracle étant en lecture seule, ces tables ne peuvent vivre que côté
+ * SQL Server.
+ */
 @Configuration
 public class BatchInfrastructureConfiguration extends JdbcDefaultBatchConfiguration {
 

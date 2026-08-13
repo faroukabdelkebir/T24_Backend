@@ -2,12 +2,26 @@ package com.t24extractor.utils;
 
 import java.util.Date;
 
+/**
+ * Formatage des durées d'exécution pour les journaux.
+ */
 public  class DateUtils {
 
   private DateUtils() {
     /* This utility class should not be instantiated */
   }
 
+/**
+ * Écart entre deux instants, au format {@code HH:mm:ss}.
+ *
+ * <p>L'ordre des arguments est indifférent : la valeur absolue est retournée.
+ * Au-delà de 24 heures, le champ des heures dépasse 24 plutôt que de repartir
+ * de zéro.
+ *
+ * @param d1 première date
+ * @param d2 seconde date
+ * @return la durée écoulée, par exemple {@code 02:03:04}
+ */
 public static String differenceBetween(Date d1, Date d2) {
 	
 	long diff;

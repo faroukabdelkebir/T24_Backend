@@ -4,12 +4,15 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 
 /**
- * @Author: Rami Bahrouni
- * @Email: rami.bahrouni@banquezitouna.com
-
- * Avec cette classe, on peurt renommer les noms des tables T24 pour les utiliser lors de requetage avec les tables TAFJ_VOC &amp; FILE.CONTROL
+ * Traduction des noms de tables entre les conventions T24, Oracle et SQL Server.
+ *
+ * &lt;p&gt;T24 emploie des points et le caractère {@code $}, qu'aucune des deux bases
+ * cibles n'accepte dans un identifiant non échappé. Selon l'usage, le nom doit
+ * être normalisé pour interroger TAFJ_VOC et F_FILE_CONTROL, ou converti pour
+ * nommer la table BI.
+ *
  */
-<span class="fc" id="L12">public class Renamer {</span>
+<span class="fc" id="L15">public class Renamer {</span>
     /**
      *
      * @param t24Name Le nom de la table T24 enregistre dans la table batch_config
@@ -17,14 +20,14 @@ import java.util.Optional;
      * Ex: ACCOUNT$HIS ==&gt; ACCOUNT
      */
     public String ssRenamer(String t24Name){
-<span class="fc" id="L20">        String t24name =  Optional.ofNullable(t24Name)</span>
-<span class="fc" id="L21">                .orElseThrow(() -&gt;</span>
-<span class="fc" id="L22">                        new NoSuchElementException</span>
-<span class="fc" id="L23">                                (String.format(&quot;Veuillez verifier que la valeur %s est correcte&quot;, t24Name)));</span>
-<span class="fc bfc" id="L24" title="All 2 branches covered.">        if (t24name.contains(&quot;$&quot;)){</span>
-<span class="fc" id="L25">            t24name = t24name.substring(0, t24name.indexOf(&quot;$&quot;));</span>
+<span class="fc" id="L23">        String t24name =  Optional.ofNullable(t24Name)</span>
+<span class="fc" id="L24">                .orElseThrow(() -&gt;</span>
+<span class="fc" id="L25">                        new NoSuchElementException</span>
+<span class="fc" id="L26">                                (String.format(&quot;Veuillez verifier que la valeur %s est correcte&quot;, t24Name)));</span>
+<span class="fc bfc" id="L27" title="All 2 branches covered.">        if (t24name.contains(&quot;$&quot;)){</span>
+<span class="fc" id="L28">            t24name = t24name.substring(0, t24name.indexOf(&quot;$&quot;));</span>
         }
-<span class="fc" id="L27">        return t24name;</span>
+<span class="fc" id="L30">        return t24name;</span>
     }
 
     /**
@@ -34,12 +37,12 @@ import java.util.Optional;
      * Ex: ACCOUNT$HIS ==&gt; ACCOUNT#HIS, FUNDS.TRANSFER ==&gt; FUNDS_TRANSFER
      */
     public String biRenamer(String t24Name){
-<span class="fc" id="L37">        return Optional.ofNullable(t24Name)</span>
-<span class="fc" id="L38">                .orElseThrow(() -&gt;</span>
-<span class="fc" id="L39">                        new NoSuchElementException</span>
-<span class="fc" id="L40">                                (String.format(&quot;Veuillez verifier que la valeur %s est correcte&quot;, t24Name)))</span>
-<span class="fc" id="L41">                .replace(&quot;.&quot;, &quot;_&quot;)</span>
-<span class="fc" id="L42">                .replace(&quot;$&quot;, &quot;#&quot;);</span>
+<span class="fc" id="L40">        return Optional.ofNullable(t24Name)</span>
+<span class="fc" id="L41">                .orElseThrow(() -&gt;</span>
+<span class="fc" id="L42">                        new NoSuchElementException</span>
+<span class="fc" id="L43">                                (String.format(&quot;Veuillez verifier que la valeur %s est correcte&quot;, t24Name)))</span>
+<span class="fc" id="L44">                .replace(&quot;.&quot;, &quot;_&quot;)</span>
+<span class="fc" id="L45">                .replace(&quot;$&quot;, &quot;#&quot;);</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

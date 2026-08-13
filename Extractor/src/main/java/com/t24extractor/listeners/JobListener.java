@@ -10,6 +10,14 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+/**
+ * Observateur du cycle de vie des jobs d'extraction.
+ *
+ * <p>Purement passif : il trace le démarrage sans écrire en base ni influencer
+ * l'issue du job. Le point d'extension reste en place pour un suivi applicatif
+ * (alimentation d'une table d'exécutions, notification), aujourd'hui non
+ * implémenté.
+ */
 @Component
 public class JobListener implements JobExecutionListener {
 

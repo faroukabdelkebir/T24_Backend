@@ -7,6 +7,13 @@ import org.springframework.transaction.PlatformTransactionManager;
 
 import javax.sql.DataSource;
 
+/**
+ * Place les métadonnées Spring Batch sur la base BI.
+ *
+ * &lt;p&gt;Spring Batch écrit l'état de ses exécutions (instances, steps, contextes) :
+ * la source Oracle étant en lecture seule, ces tables ne peuvent vivre que côté
+ * SQL Server.
+ */
 @Configuration
 public class BatchInfrastructureConfiguration extends JdbcDefaultBatchConfiguration {
 
@@ -16,19 +23,19 @@ public class BatchInfrastructureConfiguration extends JdbcDefaultBatchConfigurat
     public BatchInfrastructureConfiguration(
             @Qualifier(&quot;bi&quot;) DataSource batchDataSource,
             @Qualifier(&quot;biTransactionManager&quot;) PlatformTransactionManager batchTransactionManager
-<span class="nc" id="L19">    ) {</span>
-<span class="nc" id="L20">        this.batchDataSource = batchDataSource;</span>
-<span class="nc" id="L21">        this.batchTransactionManager = batchTransactionManager;</span>
-<span class="nc" id="L22">    }</span>
+<span class="fc" id="L26">    ) {</span>
+<span class="fc" id="L27">        this.batchDataSource = batchDataSource;</span>
+<span class="fc" id="L28">        this.batchTransactionManager = batchTransactionManager;</span>
+<span class="fc" id="L29">    }</span>
 
     @Override
     protected DataSource getDataSource() {
-<span class="nc" id="L26">        return batchDataSource;</span>
+<span class="fc" id="L33">        return batchDataSource;</span>
     }
 
     @Override
     protected PlatformTransactionManager getTransactionManager() {
-<span class="nc" id="L31">        return batchTransactionManager;</span>
+<span class="fc" id="L38">        return batchTransactionManager;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

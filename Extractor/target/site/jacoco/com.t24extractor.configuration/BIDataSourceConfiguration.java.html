@@ -41,64 +41,76 @@ import java.util.Objects;
         transactionManagerRef = &quot;biTransactionManager&quot;
 )
 
-<span class="nc" id="L44">public class BIDataSourceConfiguration {</span>
+/**
+ * Pile d'accès à la base BI (SQL Server), cible de l'extraction.
+ *
+ * &lt;p&gt;Déclarée {@code @Primary} : c'est la base par défaut de l'application, y
+ * compris pour les métadonnées Spring Batch. Chaque bean a son pendant côté
+ * Oracle dans {@link T24DataSourceConfiguration} ; les deux piles sont
+ * volontairement disjointes pour qu'un dialecte ou une transaction ne puisse
+ * pas être appliqué à la mauvaise base.
+ *
+ * &lt;p&gt;L'auto-commit est activé car les instructions DDL générées à l'étape
+ * BI_SYNC (CREATE, ALTER) s'exécutent hors des transactions du batch.
+ */
+<span class="fc" id="L56">public class BIDataSourceConfiguration {</span>
 
     @Bean
     @Primary
     @ConfigurationProperties(&quot;spring.datasource.bi&quot;)
     public DataSourceProperties biDataSourceProperties() {
-<span class="nc" id="L50">        return new DataSourceProperties();</span>
+<span class="fc" id="L62">        return new DataSourceProperties();</span>
     }
 
     @Bean(name = &quot;bi&quot;)
     @Primary
     public DataSource biDataSource() {
-<span class="nc" id="L56">        HikariDataSource ds = new HikariDataSource();</span>
-<span class="nc" id="L57">        ds.setJdbcUrl(Objects.requireNonNull(biDataSourceProperties().getUrl()));</span>
-<span class="nc" id="L58">        ds.setUsername(Objects.requireNonNull(biDataSourceProperties().getUsername()));</span>
-<span class="nc" id="L59">        ds.setPassword(Objects.requireNonNull(biDataSourceProperties().getPassword()));</span>
-<span class="nc" id="L60">        ds.setDriverClassName(Objects.requireNonNull(biDataSourceProperties().getDriverClassName()));</span>
-<span class="nc" id="L61">        ds.setAutoCommit(true);</span>
-<span class="nc" id="L62">        ds.setMaximumPoolSize(20);</span>
-<span class="nc" id="L63">        return ds;</span>
+<span class="fc" id="L68">        HikariDataSource ds = new HikariDataSource();</span>
+<span class="fc" id="L69">        ds.setJdbcUrl(Objects.requireNonNull(biDataSourceProperties().getUrl()));</span>
+<span class="fc" id="L70">        ds.setUsername(Objects.requireNonNull(biDataSourceProperties().getUsername()));</span>
+<span class="fc" id="L71">        ds.setPassword(Objects.requireNonNull(biDataSourceProperties().getPassword()));</span>
+<span class="fc" id="L72">        ds.setDriverClassName(Objects.requireNonNull(biDataSourceProperties().getDriverClassName()));</span>
+<span class="fc" id="L73">        ds.setAutoCommit(true);</span>
+<span class="fc" id="L74">        ds.setMaximumPoolSize(20);</span>
+<span class="fc" id="L75">        return ds;</span>
     }
 
 
     @Bean(&quot;jdbcBI&quot;)
     @Primary
     public JdbcTemplate jdbcSqlServer(@Qualifier(&quot;bi&quot;) DataSource ds) {
-<span class="nc" id="L70">        return new JdbcTemplate(ds);</span>
+<span class="fc" id="L82">        return new JdbcTemplate(ds);</span>
     }
 
 
     @Bean(name = &quot;biJdbcOperations&quot;)
     @Primary
     NamedParameterJdbcOperations biJdbcOperations(@Qualifier(&quot;bi&quot;) DataSource dataSource) {
-<span class="nc" id="L77">        return new NamedParameterJdbcTemplate(dataSource);</span>
+<span class="fc" id="L89">        return new NamedParameterJdbcTemplate(dataSource);</span>
     }
 
     @Bean(name = &quot;biTransactionManager&quot;)
     @Primary
     public PlatformTransactionManager biTransactionManager(@Qualifier(&quot;bi&quot;) DataSource ds) {
-<span class="nc" id="L83">        return new DataSourceTransactionManager(ds);</span>
+<span class="fc" id="L95">        return new DataSourceTransactionManager(ds);</span>
     }
 
     @Bean(name = &quot;biDialect&quot;)
     @Primary
     public Dialect biDialect() {
-<span class="nc" id="L89">        return JdbcSqlServerDialect.INSTANCE;</span>
+<span class="fc" id="L101">        return JdbcSqlServerDialect.INSTANCE;</span>
     }
 
     @Bean(name = &quot;biJdbcCustomConversions&quot;)
     @Primary
     public JdbcCustomConversions biJdbcCustomConversions() {
-<span class="nc" id="L95">        return new JdbcCustomConversions();</span>
+<span class="fc" id="L107">        return new JdbcCustomConversions();</span>
     }
 
     @Bean(name = &quot;biMappingContext&quot;)
     @Primary
     public RelationalMappingContext biMappingContext() {
-<span class="nc" id="L101">        return new org.springframework.data.jdbc.core.mapping.JdbcMappingContext(DefaultNamingStrategy.INSTANCE);</span>
+<span class="fc" id="L113">        return new org.springframework.data.jdbc.core.mapping.JdbcMappingContext(DefaultNamingStrategy.INSTANCE);</span>
     }
 
     @Bean(name = &quot;biJdbcConverter&quot;)
@@ -109,7 +121,7 @@ import java.util.Objects;
             @Lazy @Qualifier(&quot;biDataAccessStrategy&quot;) RelationResolver relationResolver,
             @Qualifier(&quot;biJdbcCustomConversions&quot;) JdbcCustomConversions conversions
     ) {
-<span class="nc" id="L112">        return new MappingJdbcConverter(context, relationResolver, conversions, new DefaultJdbcTypeFactory(ops.getJdbcOperations()));</span>
+<span class="fc" id="L124">        return new MappingJdbcConverter(context, relationResolver, conversions, new DefaultJdbcTypeFactory(ops.getJdbcOperations()));</span>
     }
 
     @Bean(name = &quot;biDataAccessStrategy&quot;)
@@ -120,8 +132,8 @@ import java.util.Objects;
             @Qualifier(&quot;biJdbcOperations&quot;) NamedParameterJdbcOperations ops,
             @Qualifier(&quot;biDialect&quot;) Dialect dialect
     ) {
-<span class="nc" id="L123">        var sqlGeneratorSource = new SqlGeneratorSource(context, converter, dialect);</span>
-<span class="nc" id="L124">        return new DefaultDataAccessStrategy(</span>
+<span class="fc" id="L135">        var sqlGeneratorSource = new SqlGeneratorSource(context, converter, dialect);</span>
+<span class="fc" id="L136">        return new DefaultDataAccessStrategy(</span>
                 sqlGeneratorSource,
                 context,
                 converter,
@@ -140,7 +152,7 @@ import java.util.Objects;
             @Qualifier(&quot;biJdbcConverter&quot;) JdbcConverter converter,
             @Qualifier(&quot;biDataAccessStrategy&quot;) DataAccessStrategy dataAccessStrategy
     ) {
-<span class="nc" id="L143">        return new JdbcAggregateTemplate(applicationContext, context, converter, dataAccessStrategy);</span>
+<span class="fc" id="L155">        return new JdbcAggregateTemplate(applicationContext, context, converter, dataAccessStrategy);</span>
     }
 
 }

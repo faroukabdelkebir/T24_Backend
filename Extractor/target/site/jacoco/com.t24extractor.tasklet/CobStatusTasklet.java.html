@@ -15,11 +15,22 @@ import org.springframework.stereotype.Component;
 import static com.t24extractor.commons.Constants.*;
 
 /**
- * Cette tasklet prend en charge de vérifier si le COB est en état STOP
- * Si c'est le cas, l'extracteur se démarre pour vérifier s'il y a des données à extraire.
+ * Première étape de tout job : vérifie que la clôture journalière T24 est
+ * terminée avant d'autoriser l'extraction.
+ *
+ * &lt;p&gt;Pendant le COB (&lt;i&gt;Close Of Business&lt;/i&gt;), T24 réécrit massivement ses
+ * tables : les lire à ce moment produirait un instantané incohérent. L'étape
+ * lit le champ {@code SERVICE_CONTROL} de F_TSA_SERVICE ; seule la valeur
+ * {@code STOP} laisse le job continuer.
+ *
+ * &lt;p&gt;Si le COB tourne encore, l'étape n'échoue pas : elle positionne le statut
+ * de sortie {@code COB_RUNNING}, ce qui interrompt proprement le flow. Le job
+ * sera relancé au créneau suivant.
+ *
+ * @see com.t24extractor.model.CobStatus
  */
 @Component
-<span class="fc" id="L22">@Slf4j</span>
+<span class="fc" id="L33">@Slf4j</span>
 public class CobStatusTasklet implements Tasklet {
     /**
      * CobRepository permettant de requeter la table TSA_SERVICE
@@ -28,34 +39,46 @@ public class CobStatusTasklet implements Tasklet {
 
 
 
+    /**
+     * @param cobRepository accès en lecture à l'état du service T24
+     */
     @Autowired
-<span class="fc" id="L32">    public CobStatusTasklet(CobRepository cobRepository) {</span>
-<span class="fc" id="L33">        this.cobRepository = cobRepository;</span>
-<span class="fc" id="L34">    }</span>
+<span class="fc" id="L46">    public CobStatusTasklet(CobRepository cobRepository) {</span>
+<span class="fc" id="L47">        this.cobRepository = cobRepository;</span>
+<span class="fc" id="L48">    }</span>
 
+    /**
+     * {@inheritDoc}
+     *
+     * @return toujours {@link RepeatStatus#FINISHED} ; le refus de poursuivre
+     *         passe par le statut de sortie, pas par une exception
+     * @throws com.t24extractor.exception.DataNotFoundException si la table
+     *         F_TSA_SERVICE ne contient pas la ligne COB, signe que la base T24
+     *         n'est pas correctement chargée
+     */
     @Override
     public RepeatStatus execute(@NonNull StepContribution stepContribution, @NonNull ChunkContext chunkContext) throws Exception {
-<span class="fc" id="L38">        log.info(&quot;*-----------------* Vérification si le COB est en état d'arrêt *-----------------*&quot;);</span>
+<span class="fc" id="L61">        log.info(&quot;*-----------------* Vérification si le COB est en état d'arrêt *-----------------*&quot;);</span>
 
 
-<span class="fc" id="L41">        log.info(&quot;*-----------------* Lecture du champ 'SERVICE_CONTROL' de la table TSA_SERVICE *-----------------*&quot;);</span>
-<span class="fc" id="L42">        String serviceControl = cobRepository.findById(COB_RECID)</span>
-<span class="fc" id="L43">                .orElseThrow(() -&gt;</span>
-<span class="fc" id="L44">                        new DataNotFoundException(&quot;Le champ 'SERVICE_CONTROL' est vide. Prière de vérifier si la base T24 est bien chargée.&quot;)</span>
+<span class="fc" id="L64">        log.info(&quot;*-----------------* Lecture du champ 'SERVICE_CONTROL' de la table TSA_SERVICE *-----------------*&quot;);</span>
+<span class="fc" id="L65">        String serviceControl = cobRepository.findById(COB_RECID)</span>
+<span class="fc" id="L66">                .orElseThrow(() -&gt;</span>
+<span class="fc" id="L67">                        new DataNotFoundException(&quot;Le champ 'SERVICE_CONTROL' est vide. Prière de vérifier si la base T24 est bien chargée.&quot;)</span>
                 )
-<span class="fc" id="L46">                .serviceControl();</span>
+<span class="fc" id="L69">                .serviceControl();</span>
         /*
          * Si la variable serviceControl est &quot;STOP&quot;, l'extracteur sera déclenché.
          * Sinon, le job se quittera
          */
-<span class="fc bfc" id="L51" title="All 2 branches covered.">        if (COB_STOPPED.equals(serviceControl)) {</span>
-<span class="fc" id="L52">            log.info(&quot;*-----------------* Le COB est en état d'arrêt, procéder à l'étape  *-----------------*&quot;);</span>
+<span class="fc bfc" id="L74" title="All 2 branches covered.">        if (COB_STOPPED.equals(serviceControl)) {</span>
+<span class="fc" id="L75">            log.info(&quot;*-----------------* Le COB est en état d'arrêt, procéder à l'étape  *-----------------*&quot;);</span>
         } else {
-<span class="fc" id="L54">            stepContribution.setExitStatus(new ExitStatus(COB_RUNNING));</span>
-<span class="fc" id="L55">            stepContribution.getStepExecution().getJobExecution().setExitStatus(new ExitStatus(COB_RUNNING));</span>
-<span class="fc" id="L56">            log.info(&quot;*-----------------* Le COB est en état d'exécution, l'extracteur s'arrêtera en quelques mins  *-----------------*&quot;);</span>
+<span class="fc" id="L77">            stepContribution.setExitStatus(new ExitStatus(COB_RUNNING));</span>
+<span class="fc" id="L78">            stepContribution.getStepExecution().getJobExecution().setExitStatus(new ExitStatus(COB_RUNNING));</span>
+<span class="fc" id="L79">            log.info(&quot;*-----------------* Le COB est en état d'exécution, l'extracteur s'arrêtera en quelques mins  *-----------------*&quot;);</span>
         }
-<span class="fc" id="L58">        return RepeatStatus.FINISHED;</span>
+<span class="fc" id="L81">        return RepeatStatus.FINISHED;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

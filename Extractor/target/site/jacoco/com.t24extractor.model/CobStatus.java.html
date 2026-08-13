@@ -4,8 +4,20 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 
+/**
+ * État de la clôture journalière T24 (COB, &lt;i&gt;Close Of Business&lt;/i&gt;).
+ *
+ * &lt;p&gt;L'extraction ne doit pas tourner pendant le COB : les tables sont alors en
+ * cours de mise à jour et les données lues seraient incohérentes. La valeur
+ * {@code STOP} signifie que la clôture est terminée et que l'extraction peut
+ * démarrer.
+ *
+ * @param recid          identifiant de la ligne de service, toujours {@code COB}
+ * @param serviceControl état courant du service
+ * @see com.t24extractor.tasklet.CobStatusTasklet
+ */
 @Table(&quot;F_TSA_SERVICE&quot;)
-<span class="fc" id="L8">public record CobStatus(</span>
+<span class="fc" id="L20">public record CobStatus(</span>
         @Id
         @Column(&quot;RECID&quot;)
         String recid,

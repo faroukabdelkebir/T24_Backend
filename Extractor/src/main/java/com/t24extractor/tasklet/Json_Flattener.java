@@ -42,6 +42,16 @@ public class Json_Flattener implements Tasklet {
     }
 
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Pour chaque champ multivalué de la table, crée si besoin la table
+     * satellite {@code TABLE#CHAMP}, la vide, puis la réalimente en éclatant le
+     * JSON avec {@code OPENJSON}. Les colonnes absentes de la table principale
+     * et le champ {@code DATE_TIME} sont ignorés.
+     *
+     * @return toujours {@link RepeatStatus#FINISHED}
+     */
     @Override
     public RepeatStatus execute(StepContribution stepContribution, @NonNull ChunkContext chunkContext) throws Exception {
 
@@ -68,53 +78,21 @@ public class Json_Flattener implements Tasklet {
             if (!key.contains("Local_Ref") && !key.equals("DATE_TIME")
                     && nameJs.get(key).toString().contains("MAX")) {
 
-                sb.append("IF NOT EXISTS (SELECT * FROM sys.tables WHERE name='")
-                        .append(name).append("#").append(key).append("') ")
-                        .append("CREATE TABLE [").append(name).append("#").append(key).append("] (")
-                        .append("[").append(ID).append("]").append(ID_TYPE).append(", \n")
-                        .append("[").append(key).append("] nvarchar(355) ,\n")
-                        .append("[MV_SEQUENCE] int ,\n")
-                        .append("[SEQUENCE] int \n")
-                        .append(")");
+                sb.append(String.format(CREATE_SATELLITE_TABLE_TPL, name, key, ID_TYPE));
 
                 // Idempotence : purge avant réalimentation complète
                 deleteQueries.add(purgeQuery(name, key));
 
-                String insertQuery = String.format("""
-                        INSERT INTO [%s#%s] (_id, %s, [MV_SEQUENCE], [SEQUENCE])
-                        SELECT _id, lda.%s, lda.[MV_SEQUENCE], lda.[SEQUENCE]
-                        FROM %s AS ld
-                        CROSS APPLY OPENJSON(ld.%s)
-                        WITH (
-                          %s nvarchar(255) N'strict $.%s',
-                          [MV_SEQUENCE] int N'$.mvsequence',
-                          [SEQUENCE] int N'$.sequence'
-                        ) AS lda""", name, key, key, key, name, key, key, key);
-                insertQueries.add(insertQuery);
+                insertQueries.add(String.format(INSERT_SATELLITE_TPL, name, key));
 
             } else if (key.contains("Local_Ref") && key.contains("MAX")) {
 
-                sb.append("IF NOT EXISTS (SELECT * FROM sys.tables WHERE name='")
-                        .append(name).append("#").append(key).append("') ")
-                        .append("CREATE TABLE [").append(name).append("#").append(key).append("] (")
-                        .append("[").append(ID).append("]").append(ID_TYPE).append(", \n")
-                        .append("[").append(key).append("] nvarchar(355) ,\n")
-                        .append("[SEQUENCE] int \n")
-                        .append(")");
+                sb.append(String.format(CREATE_LOCAL_REF_SATELLITE_TPL, name, key, ID_TYPE));
 
                 // Idempotence : purge avant réalimentation complète
                 deleteQueries.add(purgeQuery(name, key));
 
-                String insertQuery = STR."""
-                        INSERT INTO [\{name}#\{key}] (_id, [\{key}], [SEQUENCE])
-                        SELECT _id, lf.\{key}, lf.[SEQUENCE]
-                        FROM \{name} AS LF_table
-                        CROSS APPLY OPENJSON(LF_table.\{key})
-                        WITH (
-                        \{key} nvarchar(355) N'$.\{key}',
-                        [SEQUENCE] int N'$.sequence'
-                        ) AS lf""";
-                insertQueries.add(insertQuery);
+                insertQueries.add(String.format(INSERT_LOCAL_REF_SATELLITE_TPL, name, key));
             }
         }
 
@@ -135,14 +113,12 @@ public class Json_Flattener implements Tasklet {
 
     /** Vide un satellite s'il existe — rend la normalisation rejouable. */
     private String purgeQuery(String tableName, String key) {
-        return "IF EXISTS (SELECT * FROM sys.tables WHERE name='" + tableName + "#" + key + "') "
-                + "DELETE FROM [" + tableName + "#" + key + "]";
+        return String.format(PURGE_SATELLITE_TPL, tableName, key);
     }
 
     private boolean columnExistsInMainTable(String tableName, String columnName) {
-        String sql = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
-                + "WHERE TABLE_NAME = ? AND COLUMN_NAME = ?";
-        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, tableName, columnName);
+        Integer count = jdbcTemplate.queryForObject(
+                COUNT_COLUMN_IN_TABLE, Integer.class, tableName, columnName);
         return count != null && count > 0;
     }
 }

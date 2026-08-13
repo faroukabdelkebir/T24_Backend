@@ -6,26 +6,44 @@ import org.springframework.batch.infrastructure.item.ExecutionContext;
 import java.util.HashMap;
 import java.util.Map;
 
-<span class="fc" id="L9">public class MssqlPartitioner implements Partitioner {</span>
+/**
+ * Attribue un simple index à chacun des workers.
+ *
+ * &lt;p&gt;Aucune borne n'est calculée ici : la répartition des lignes est déléguée à
+ * Oracle, via la clause {@code MOD(ORA_HASH(ROWID), gridSize) = index} posée
+ * par {@link com.t24extractor.tasklet.QueryTasklet}. Chaque worker reçoit donc
+ * uniquement son index, sous la clé {@code value}.
+ *
+ * &lt;p&gt;L'avantage sur un découpage par plages est qu'aucun comptage préalable
+ * n'est nécessaire et que la répartition reste équilibrée même si les
+ * identifiants sont irrégulièrement distribués.
+ */
+<span class="fc" id="L21">public class MssqlPartitioner implements Partitioner {</span>
+    /**
+     * {@inheritDoc}
+     *
+     * @param gridSize nombre de workers
+     * @return une partition {@code partition&lt;n&gt;} par worker, portant son index
+     */
     @Override
     public Map&lt;String, ExecutionContext&gt; partition(int gridSize) {
 
-<span class="fc" id="L13">        Map&lt;String, ExecutionContext&gt; result = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L31">        Map&lt;String, ExecutionContext&gt; result = new HashMap&lt;&gt;();</span>
 
-<span class="fc" id="L15">        int min = 0;</span>
+<span class="fc" id="L33">        int min = 0;</span>
 
 
-<span class="fc bfc" id="L18" title="All 2 branches covered.">        while (min &lt; gridSize)</span>
+<span class="fc bfc" id="L36" title="All 2 branches covered.">        while (min &lt; gridSize)</span>
         {
-<span class="fc" id="L20">            ExecutionContext value = new ExecutionContext();</span>
+<span class="fc" id="L38">            ExecutionContext value = new ExecutionContext();</span>
 
-<span class="fc" id="L22">            result.put(&quot;partition&quot; + min, value);</span>
+<span class="fc" id="L40">            result.put(&quot;partition&quot; + min, value);</span>
 
-<span class="fc" id="L24">            value.putInt(&quot;value&quot;, min);</span>
+<span class="fc" id="L42">            value.putInt(&quot;value&quot;, min);</span>
 
-<span class="fc" id="L26">            min++;</span>
-<span class="fc" id="L27">        }</span>
-<span class="fc" id="L28">        return result;</span>
+<span class="fc" id="L44">            min++;</span>
+<span class="fc" id="L45">        }</span>
+<span class="fc" id="L46">        return result;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

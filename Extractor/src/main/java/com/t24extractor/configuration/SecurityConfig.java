@@ -15,6 +15,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * L'extracteur est un RESOURCE SERVER OAuth2 : il valide les JWT émis par
@@ -74,14 +75,24 @@ public class SecurityConfig {
     }
 
     private List<String> extractScopes(Jwt jwt) {
-        List<String> scopeList = jwt.getClaimAsStringList("scope");
-        if (scopeList != null && !scopeList.isEmpty()) {
-            return scopeList;
+        // NB : ne pas utiliser getClaimAsStringList ici. Ce helper convertit une
+        // chaîne en liste d'UN seul élément, si bien qu'un claim standard
+        // "scope": "batch:execute batch:read" (RFC 6749) produisait l'autorité
+        // unique "SCOPE_batch:execute batch:read" — et donc un 403 sur /api/v1/**.
+        Object rawScope = jwt.getClaim("scope");
+
+        if (rawScope instanceof Collection<?> scopes) {
+            return scopes.stream()
+                    .filter(Objects::nonNull)
+                    .map(String::valueOf)
+                    .filter(scope -> !scope.isBlank())
+                    .toList();
         }
-        String scopeString = jwt.getClaimAsString("scope");
-        if (scopeString != null && !scopeString.isBlank()) {
-            return List.of(scopeString.split(" "));
+
+        if (rawScope instanceof String scopeString && !scopeString.isBlank()) {
+            return List.of(scopeString.trim().split("\\s+"));
         }
+
         return Collections.emptyList();
     }
 }

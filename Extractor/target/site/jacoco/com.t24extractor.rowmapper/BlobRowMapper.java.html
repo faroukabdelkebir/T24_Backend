@@ -8,32 +8,49 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.HashMap;
 
-<span class="fc" id="L11">public class BlobRowMapper implements RowMapper&lt;HashMap&lt;String, Object&gt;&gt;</span>
+/**
+ * Mappe une ligne de vue BLOB en dictionnaire colonne → valeur.
+ *
+ * &lt;p&gt;Contrairement au mode XML, les colonnes ne sont pas connues à la
+ * compilation : elles sont déterminées à l'exécution par
+ * {@link StandardSelectionTasklet#getBlobViewFields()}, alimenté lors de la
+ * construction de la vue.
+ *
+ * &lt;p&gt;Une colonne illisible est tracée puis ignorée plutôt que de faire échouer
+ * le chunk entier : la vue peut contenir des champs absents de certaines lignes.
+ */
+<span class="fc" id="L22">public class BlobRowMapper implements RowMapper&lt;HashMap&lt;String, Object&gt;&gt;</span>
 {
 
 
-<span class="fc" id="L15">    private static final Logger LOG = LoggerFactory.getLogger(BlobRowMapper.class) ;</span>
+<span class="fc" id="L26">    private static final Logger LOG = LoggerFactory.getLogger(BlobRowMapper.class) ;</span>
 
+    /**
+     * {@inheritDoc}
+     *
+     * @return les champs de la vue, plus {@code _id} et {@code rowNumber}
+     *         (ce dernier servant au découpage en partitions)
+     */
     @Override
-    public HashMap&lt;String, Object&gt; mapRow(ResultSet resultSet, int i) throws SQLException 
+    public HashMap&lt;String, Object&gt; mapRow(ResultSet resultSet, int i) throws SQLException
     {
-<span class="fc" id="L20">        HashMap&lt;String, Object&gt; t24BlobItem = new HashMap&lt;&gt;();</span>
-<span class="fc" id="L21">        t24BlobItem.put(&quot;_id&quot;, resultSet.getString(&quot;FIELD_ID&quot;));</span>
-<span class="fc bfc" id="L22" title="All 2 branches covered.">        for (String field : StandardSelectionTasklet.getBlobViewFields())</span>
+<span class="fc" id="L37">        HashMap&lt;String, Object&gt; t24BlobItem = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L38">        t24BlobItem.put(&quot;_id&quot;, resultSet.getString(&quot;FIELD_ID&quot;));</span>
+<span class="fc bfc" id="L39" title="All 2 branches covered.">        for (String field : StandardSelectionTasklet.getBlobViewFields())</span>
         {
         	try
         	{
-<span class="fc" id="L26">        		t24BlobItem.put(field, resultSet.getObject(field));</span>
+<span class="fc" id="L43">        		t24BlobItem.put(field, resultSet.getObject(field));</span>
         	}
-<span class="fc" id="L28">        	catch(Exception ex)</span>
+<span class="fc" id="L45">        	catch(Exception ex)</span>
         	{
-<span class="fc" id="L30">        		LOG.trace(&quot;[BlobRowMapper] Erreur de mapping : {} &quot; , field);</span>
-<span class="fc" id="L31">        	}    	</span>
-<span class="fc" id="L32">        }</span>
+<span class="fc" id="L47">        		LOG.trace(&quot;[BlobRowMapper] Erreur de mapping : {} &quot; , field);</span>
+<span class="fc" id="L48">        	}    	</span>
+<span class="fc" id="L49">        }</span>
         
-<span class="fc" id="L34">        t24BlobItem.put(&quot;rowNumber&quot;, resultSet.getLong(&quot;rowNumber&quot;));</span>
+<span class="fc" id="L51">        t24BlobItem.put(&quot;rowNumber&quot;, resultSet.getLong(&quot;rowNumber&quot;));</span>
         
-<span class="fc" id="L36">        return(t24BlobItem) ;</span>
+<span class="fc" id="L53">        return(t24BlobItem) ;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
